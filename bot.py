@@ -335,36 +335,21 @@ async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Анкета — простий ConversationHandler (один крок — весь текст)
 # ─────────────────────────────────────────────
 
-async def anketa_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def anketa_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    # Зберігаємо стан: ця людина зараз заповнює анкету
+    context.bot_data[f"anketa_pending_{user.id}"] = True
     await update.message.reply_text(
         "📋 *Анкета*\n\n"
-        "Напиши будь-що про себе — скільки хочеш, в довільній формі.\n"
-        "Ім'я, вік, звідки, чим займаєшся, хобі, цікаві факти — все що хочеш щоб знали про тебе.\n\n"
-        "_Відправ одне повідомлення або /cancel щоб скасувати._",
+        "Напиши будь-що про себе в одному повідомленні — в довільній формі.\n"
+        "Ім'я, вік, звідки, чим займаєшся, хобі, цікаві факти — все що хочеш щоб знали.\n\n"
+        "_Напиши текст нижче або /cancel щоб скасувати._",
         parse_mode="Markdown"
     )
-    return ANKETA_TEXT
 
-async def anketa_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    profiles[user.id] = {
-        "text": update.message.text,
-        "username": user.username,
-        "tg_name": user.first_name,
-    }
-    mention = f"@{user.username}" if user.username else user.first_name
-    await update.message.reply_text(
-        f"✅ *Анкету збережено!*\n\n"
-        f"_{update.message.text}_\n\n"
-        f"Переглянути: /profile\n"
-        f"Або поділись з іншими: /profile {mention}",
-        parse_mode="Markdown"
-    )
-    return ConversationHandler.END
-
-async def anketa_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def anketa_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.bot_data.pop(f"anketa_pending_{update.effective_user.id}", None)
     await update.message.reply_text("❌ Скасовано.")
-    return ConversationHandler.END
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_id = None
@@ -418,6 +403,26 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if not user or user.is_bot:
         return
+
+    # Якщо людина заповнює анкету — зберігаємо і виходимо
+    anketa_key = f"anketa_pending_{user.id}"
+    if context.bot_data.get(anketa_key):
+        context.bot_data.pop(anketa_key)
+        profiles[user.id] = {
+            "text": update.message.text,
+            "username": user.username,
+            "tg_name": user.first_name,
+        }
+        mention = f"@{user.username}" if user.username else user.first_name
+        await update.message.reply_text(
+            f"✅ *Анкету збережено!*\n\n"
+            f"_{update.message.text}_\n\n"
+            f"Переглянути: /profile або /profile {mention}",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Рахуємо активність
     if user.id not in activity[chat_id]:
         activity[chat_id][user.id] = {"name": user.first_name, "username": user.username, "count": 0}
     activity[chat_id][user.id].update({"name": user.first_name, "username": user.username})
@@ -602,18 +607,9 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    # Трекер (group=0 — першочерговий)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
-    # Ловить текст для кастомного івенту (group=1 — після трекера)
+    # Трекер + анкета + кастомний івент — все в одному MessageHandler
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_event_title), group=1)
-
-    # Анкета
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("anketa", anketa_start)],
-        states={ANKETA_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, anketa_save)]},
-        fallbacks=[CommandHandler("cancel", anketa_cancel)],
-        per_chat=False,
-    ))
 
     # Callback-кнопки
     app.add_handler(CallbackQueryHandler(cb_event_type,   pattern=r"^etype_"))
@@ -636,6 +632,7 @@ def main():
     app.add_handler(CommandHandler("profile",     show_profile))
     app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
     app.add_handler(CommandHandler("autostart",   cmd_autostart))
+    app.add_handler(CommandHandler("cancel",      anketa_cancel))
 
     logger.info("Бот запущено!")
     app.run_polling()
