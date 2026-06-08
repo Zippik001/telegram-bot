@@ -16,6 +16,12 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 logger = logging.getLogger(__name__)
 
 KYIV_TZ = pytz.timezone("Europe/Kyiv")
+
+def he(text: str) -> str:
+    """Екранує HTML спецсимволи."""
+    return str(text).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+
+
 WEATHER_LAT, WEATHER_LON = "48.1486", "17.1077"
 
 _events: dict = storage.load_events()
@@ -193,8 +199,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
-                "📋 Напиши текст після «про себе», наприклад:\n_про себе Привіт! Мене звати Іван, 27 років_ 🙂",
-                parse_mode="Markdown"
+                "📋 Напиши текст після «про себе», наприклад:\nпро себе Привіт! Мене звати Іван, 27 років 🙂"
             )
 
     # Зберігаємо для /gather
@@ -232,18 +237,16 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not p:
         if int(target_id) == update.effective_user.id:
             await update.message.reply_text(
-                "📋 У тебе ще немає анкети.\n\n"
-                "Напиши повідомлення що починається з *про себе*:\n"
-                "_про себе Привіт! Мене звати Іван, 27 років, з Києва_",
-                parse_mode="Markdown"
+                "📋 У тебе ще немає анкети.\n\nНапиши повідомлення:\nпро себе Привіт! Мене звати Іван, 27 років, з Києва"
             )
         else:
             await update.message.reply_text("😔 Ця людина ще не заповнила анкету.")
         return
 
-    mention = f"@{p['username']}" if p.get("username") else p["tg_name"]
+    mention = f"@{he(p['username'])}" if p.get("username") else he(p["tg_name"])
     await update.message.reply_text(
-        f"👤 {p['tg_name']} ({mention})\n\n{p['text']}"
+        f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}",
+        parse_mode="HTML"
     )
 
 async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -251,16 +254,35 @@ async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not profiles:
         await update.message.reply_text(
             "📭 Ще ніхто не заповнив анкету.\n\n"
-            "Напиши: _про себе Привіт, мене звати..._",
-            parse_mode="Markdown"
+            "Напиши: про себе Привіт, мене звати..."
         )
         return
-    lines = ["📋 Анкети учасників:\n"]
+    # Будуємо кнопки — кожна кнопка це ім'я людини, тисниш — отримуєш анкету
+    keyboard = []
+    profile_map = {}  # callback_data -> uid
     for uid, p in profiles.items():
-        mention = f"@{p['username']}" if p.get("username") else p["tg_name"]
-        lines.append(f"• {p['tg_name']} ({mention})")
-    lines.append("\n/profile @username — переглянути анкету")
-    await update.message.reply_text("\n".join(lines))
+        label = p["tg_name"]
+        if p.get("username"):
+            label += f" (@{p['username']})"
+        cb = f"showprofile_{uid}"
+        keyboard.append([InlineKeyboardButton(label, callback_data=cb)])
+    await update.message.reply_text(
+        f"📋 Анкети учасників: {len(profiles)}\n\nНатисни на ім'я щоб переглянути 👇",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def cb_show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = int(q.data.replace("showprofile_", ""))
+    profiles = storage.load_profiles()
+    p = profiles.get(uid)
+    if not p:
+        await q.answer("Анкету не знайдено 😔", show_alert=True)
+        return
+    mention = f"@{p['username']}" if p.get("username") else p["tg_name"]
+    mention = f"@{he(p['username'])}" if p.get("username") else he(p["tg_name"])
+    await q.message.reply_text(f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}", parse_mode="HTML")
 
 # ── Теги / Збір ───────────────────────────────
 
@@ -281,17 +303,20 @@ async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("😔 Список порожній. Бот запам'ятовує людей коли вони пишуть у групі.")
         return
 
-    mentions = []
+    # Розділяємо: з username — @mention, без — просто ім'я
+    with_username = []
+    without_username = []
     for uid, u in tags.items():
         if u.get("username"):
-            mentions.append(f"@{u['username']}")
+            with_username.append(f"@{u['username']}")
         else:
-            # text_mention для тих без username
-            mentions.append(f"[{u['name']}](tg://user?id={uid})")
+            without_username.append(u["name"])
 
     custom_text = " ".join(context.args) if context.args else "Збір! 👋"
-    text = f"📢 {custom_text}\n\n" + " ".join(mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
-    sent = await update.message.reply_text(text, parse_mode="Markdown")
+    all_mentions = with_username + without_username
+    text = f"📢 {custom_text}\n\n" + " ".join(all_mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
+    # Без parse_mode — щоб нічого не ламалось
+    sent = await update.message.reply_text(text)
 
     async def delete_it(ctx):
         try:
@@ -500,12 +525,12 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
     total  = sum(u["count"] for _, u in srt)
     active = [(uid, u) for uid, u in srt if u["count"] > 0]
-    lines  = [f"📈 *Звіт активності*\n_(повідомлень: {total})_\n"]
+    lines  = [f"📈 Звіт активності\n(повідомлень: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
         bl  = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10)
         pct = round(u["count"]/total*100) if total else 0
-        lines.append(f"{medal(rank)} *{u['name']}* — {u['count']} повід. ({pct}%)\n`{'█'*bl+'░'*(10-bl)}`")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} повід. ({pct}%)\n{'█'*bl+'░'*(10-bl)}")
+    await update.message.reply_text("\n".join(lines))
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     activity[update.effective_chat.id] = {}
@@ -556,19 +581,18 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
     total  = sum(u["count"] for _, u in srt)
     active = [(uid, u) for uid, u in srt if u["count"] > 0]
-    lines  = [f"📈 *Тижневий звіт*\n_(повідомлень: {total})_\n"]
+    lines  = [f"📈 Тижневий звіт\n(повідомлень: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
         bl = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10) if active else 0
-        lines.append(f"{medal(rank)} *{u['name']}* — {u['count']} повід.\n`{'█'*bl+'░'*(10-bl)}`")
-    await context.bot.send_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} повід.\n{'█'*bl+'░'*(10-bl)}")
+    await context.bot.send_message(chat_id, "\n".join(lines))
     active_ids = {uid for uid, u in active}
     tags = storage.load_tags()
     silent = [u for uid, u in tags.items() if int(uid) not in active_ids]
     if silent:
         mentions = [f"@{u['username']}" if u.get("username") else u["name"] for u in silent]
         await context.bot.send_message(chat_id,
-            "👻 *Мовчуни тижня:*\n\n" + " ".join(mentions) + "\n\nЯк справи? 💙",
-            parse_mode="Markdown")
+            "👻 Мовчуни тижня:\n\n" + " ".join(mentions) + "\n\nЯк справи? 💙")
     for uid in activity[chat_id]:
         activity[chat_id][uid]["count"] = 0
 
@@ -643,6 +667,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
 
+    app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
     app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
     app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
