@@ -341,13 +341,10 @@ def event_kb(ev):
     eid   = ev["id"]
     yes_c = sum(1 for n, v in ev["votes_named"].values() if v)
     no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(f"✅ Йду ({yes_c})",    callback_data=f"ev_yes_{eid}"),
-            InlineKeyboardButton(f"❌ Не йду ({no_c})", callback_data=f"ev_no_{eid}"),
-        ],
-        [InlineKeyboardButton("👥 Хто йде?", callback_data=f"ev_who_{eid}")],
-    ])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"✅ Йду ({yes_c})",    callback_data=f"ev_yes_{eid}"),
+        InlineKeyboardButton(f"❌ Не йду ({no_c})", callback_data=f"ev_no_{eid}"),
+    ]])
 
 async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
@@ -428,7 +425,25 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _events[chat_id] = []
     _events[chat_id].append(ev)
     storage.save_events(_events)
-    await q.edit_message_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+
+    # Відправляємо картку івенту як нове повідомлення
+    sent = await q.message.reply_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+
+    # Зберігаємо message_id для закріплення та видалення
+    ev["msg_id"] = sent.message_id
+    storage.save_events(_events)
+
+    # Закріплюємо повідомлення
+    try:
+        await q.bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
+    except Exception as e:
+        logger.warning(f"Pin failed: {e}")
+
+    # Видаляємо меню вибору
+    try:
+        await q.delete_message()
+    except Exception:
+        pass
 
 async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -466,6 +481,7 @@ async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
     except Exception:
         pass
+    await q.answer("Збережено! ✅")
 
 async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -478,9 +494,32 @@ async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
 
 async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _events[update.effective_chat.id] = []
+    chat_id = update.effective_chat.id
+    ev_list = _events.get(chat_id, [])
+
+    # Видаляємо повідомлення і відкріплюємо
+    for ev in ev_list:
+        if ev.get("msg_id"):
+            try:
+                await context.bot.delete_message(chat_id, ev["msg_id"])
+            except Exception:
+                pass
+    try:
+        await context.bot.unpin_all_chat_messages(chat_id)
+    except Exception:
+        pass
+
+    _events[chat_id] = []
     storage.save_events(_events)
-    await update.message.reply_text("🗑 Список івентів очищено.")
+    msg = await update.message.reply_text("🗑 Всі івенти видалено і відкріплено.")
+    # Видалити і команду і відповідь через 3 секунди
+    import asyncio
+    await asyncio.sleep(3)
+    try:
+        await update.message.delete()
+        await msg.delete()
+    except Exception:
+        pass
 
 # ─────────────────────────────────────────────
 # Статистика
@@ -608,31 +647,30 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 *Привіт! Я ваш груповий бот!*\n\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "📋 *Анкета*\n"
-        "Напиши повідомлення що починається з *про себе*:\n"
-        "_про себе Привіт! Мене звати Іван, 27 років, з Києва. Люблю настілки і походи_ 🙂\n"
-        "/profile — переглянути свою анкету\n"
-        "/profile @username — анкета іншого учасника\n"
-        "/profiles — всі анкети\n\n"
-        "━━━━━━━━━━━━━━━━\n"
+        "🤖✨ *Петро Інтерактивний до ваших послуг!*\n\n"
+        "Я тут щоб ваша компанія не розпадалась від мовчанки 😄\n\n"
+        "👤 *Знайомство*\n"
+        "Напиши _про себе_ і далі свій текст — збережу в анкету:\n"
+        "`про себе Привіт! Мене звати Іван, 27 років, люблю настілки` 🙂\n"
+        "/profile — своя анкета\n"
+        "/profile @username — анкета учасника\n"
+        "/profiles — всі анкети групи\n\n"
         "🎉 *Івенти*\n"
-        "/event — запропонувати івент\n"
-        "/events — активні івенти\n"
-        "/clearevents — очистити список\n\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "👥 *Учасники*\n"
-        "/gather — тегнути всіх (видалиться через 1 хв)\n"
-        "/tags — список учасників\n\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "🔧 *Інше*\n"
-        "/weather — погода в Братиславі\n"
-        "/question — рандомне питання\n"
-        "/topic — тема для обговорення\n"
-        "/report — звіт активності\n"
-        "/resetstats — скинути статистику\n"
-        "/autostart — увімкнути авто-повідомлення",
+        "/event — запропонувати захід (закріпиться автоматично!)\n"
+        "/events — всі активні івенти\n"
+        "/clearevents — видалити всі івенти\n\n"
+        "📢 *Гукнути всіх*\n"
+        "/gather — тегнути кожного учасника (зникне за хвилину)\n"
+        "/gather Є хто живий? — з власним текстом\n"
+        "/tags — хто вже є в списку\n\n"
+        "🌤 *Щоденне*\n"
+        "/weather — погода в Братиславі зараз\n"
+        "/question — гостре питання яке змусить думати 🔥\n"
+        "/topic — тема для справжньої розмови\n\n"
+        "📊 *Статистика*\n"
+        "/report — хто балакучий, а хто мовчун\n"
+        "/resetstats — обнулити рахунок\n\n"
+        "⚙️ /autostart — запустити всі авто-повідомлення",
         parse_mode="Markdown"
     )
 
