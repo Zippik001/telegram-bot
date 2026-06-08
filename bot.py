@@ -189,8 +189,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profiles[user.id] = {"text": info, "username": user.username or "", "tg_name": user.first_name}
             storage.save_profiles(profiles)
             await update.message.reply_text(
-                f"✅ *Збережено, {user.first_name}!*\n\n_{info}_\n\nПереглянути: /profile",
-                parse_mode="Markdown"
+                f"✅ Збережено, {user.first_name}!\n\n{info}\n\nПереглянути: /profile"
             )
         else:
             await update.message.reply_text(
@@ -244,8 +243,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mention = f"@{p['username']}" if p.get("username") else p["tg_name"]
     await update.message.reply_text(
-        f"👤 *{p['tg_name']}* ({mention})\n\n{p['text']}",
-        parse_mode="Markdown"
+        f"👤 {p['tg_name']} ({mention})\n\n{p['text']}"
     )
 
 async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -257,12 +255,12 @@ async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-    lines = ["📋 *Анкети учасників:*\n"]
+    lines = ["📋 Анкети учасників:\n"]
     for uid, p in profiles.items():
         mention = f"@{p['username']}" if p.get("username") else p["tg_name"]
         lines.append(f"• {p['tg_name']} ({mention})")
     lines.append("\n/profile @username — переглянути анкету")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
 
 # ── Теги / Збір ───────────────────────────────
 
@@ -271,11 +269,11 @@ async def cmd_tags_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not tags:
         await update.message.reply_text("📭 Список порожній. Бот запам'ятовує всіх хто пише у групі.")
         return
-    lines = ["👥 *Учасники групи:*\n"]
+    lines = ["👥 Учасники групи:\n"]
     for uid, u in tags.items():
         mention = f"@{u['username']}" if u.get("username") else u["name"]
         lines.append(f"• {u['name']} ({mention})")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
 
 async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags = storage.load_tags()
@@ -292,7 +290,7 @@ async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mentions.append(f"[{u['name']}](tg://user?id={uid})")
 
     custom_text = " ".join(context.args) if context.args else "Збір! 👋"
-    text = f"📢 *{custom_text}*\n\n" + " ".join(mentions) + "\n\n_Повідомлення видалиться через 1 хвилину_ 🗑"
+    text = f"📢 {custom_text}\n\n" + " ".join(mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
     sent = await update.message.reply_text(text, parse_mode="Markdown")
 
     async def delete_it(ctx):
