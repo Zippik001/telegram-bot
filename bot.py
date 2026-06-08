@@ -25,6 +25,7 @@ EVENT_AWAITING_CUSTOM = 10
 # ── Сховища ──
 activity: dict[int, dict[int, dict]] = defaultdict(dict)
 profiles: dict[int, dict] = {}
+anketa_waiting: set = set()  # user_id-и які зараз заповнюють анкету
 events: dict[int, list] = defaultdict(list)
 _event_counter = 0
 
@@ -337,8 +338,7 @@ async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def anketa_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    # Зберігаємо стан: ця людина зараз заповнює анкету
-    context.bot_data[f"anketa_pending_{user.id}"] = True
+    anketa_waiting.add(user.id)
     await update.message.reply_text(
         "📋 *Анкета*\n\n"
         "Напиши будь-що про себе в одному повідомленні — в довільній формі.\n"
@@ -348,7 +348,7 @@ async def anketa_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def anketa_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.bot_data.pop(f"anketa_pending_{update.effective_user.id}", None)
+    anketa_waiting.discard(update.effective_user.id)
     await update.message.reply_text("❌ Скасовано.")
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -405,9 +405,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Якщо людина заповнює анкету — зберігаємо і виходимо
-    anketa_key = f"anketa_pending_{user.id}"
-    if context.bot_data.get(anketa_key):
-        context.bot_data.pop(anketa_key)
+    if user.id in anketa_waiting:
+        anketa_waiting.discard(user.id)
         profiles[user.id] = {
             "text": update.message.text,
             "username": user.username,
