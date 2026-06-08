@@ -529,7 +529,7 @@ async def sched_howwasday(context: ContextTypes.DEFAULT_TYPE):
 async def sched_monday(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         context.job.data["chat_id"],
-        "📅 *Новий тиждень!* Є плани?\n\nЗапропонуй івент: /івент  |  Переглянь: /івенти",
+        "📅 *Новий тиждень!* Є плани?\n\nЗапропонуй івент: /event  |  Переглянь: /events",
         parse_mode="Markdown"
     )
 
@@ -638,39 +638,23 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_ev_cancel,pattern=r"^ev_cancel$"))
     app.add_handler(CallbackQueryHandler(cb_ev_vote,  pattern=r"^ev_(yes|no|who)_\d+$"))
 
-    # Команди — українські та англійські варіанти
-    for cmd in ("start", "старт"):
-        app.add_handler(CommandHandler(cmd, cmd_start))
-    for cmd in ("івент", "event"):
-        app.add_handler(CommandHandler(cmd, cmd_event))
-    for cmd in ("івенти", "events"):
-        app.add_handler(CommandHandler(cmd, cmd_events_list))
-    for cmd in ("очистити", "clearevents"):
-        app.add_handler(CommandHandler(cmd, cmd_clear_events))
-    for cmd in ("погода", "weather"):
-        app.add_handler(CommandHandler(cmd, cmd_weather))
-    for cmd in ("питання", "question"):
-        app.add_handler(CommandHandler(cmd, cmd_question))
-    for cmd in ("тема", "topic"):
-        app.add_handler(CommandHandler(cmd, cmd_topic))
-    for cmd in ("звіт", "report"):
-        app.add_handler(CommandHandler(cmd, cmd_report))
-    for cmd in ("скинути", "resetstats"):
-        app.add_handler(CommandHandler(cmd, cmd_reset))
-    for cmd in ("збір", "gather"):
-        app.add_handler(CommandHandler(cmd, cmd_gather))
-    for cmd in ("теги", "tags"):
-        app.add_handler(CommandHandler(cmd, cmd_tags_list))
-    for cmd in ("про", "anketa"):
-        app.add_handler(CommandHandler(cmd, cmd_pro))
-    for cmd in ("профіль", "profile"):
-        app.add_handler(CommandHandler(cmd, cmd_profile))
-    for cmd in ("анкети", "profiles"):
-        app.add_handler(CommandHandler(cmd, cmd_profiles_list))
-    for cmd in ("автостарт", "autostart"):
-        app.add_handler(CommandHandler(cmd, cmd_autostart))
-    for cmd in ("help", "допомога"):
-        app.add_handler(CommandHandler(cmd, cmd_start))
+    # Команди
+    app.add_handler(CommandHandler("start",       cmd_start))
+    app.add_handler(CommandHandler("help",        cmd_start))
+    app.add_handler(CommandHandler("event",       cmd_event))
+    app.add_handler(CommandHandler("events",      cmd_events_list))
+    app.add_handler(CommandHandler("clearevents", cmd_clear_events))
+    app.add_handler(CommandHandler("weather",     cmd_weather))
+    app.add_handler(CommandHandler("question",    cmd_question))
+    app.add_handler(CommandHandler("topic",       cmd_topic))
+    app.add_handler(CommandHandler("report",      cmd_report))
+    app.add_handler(CommandHandler("resetstats",  cmd_reset))
+    app.add_handler(CommandHandler("gather",      cmd_gather))
+    app.add_handler(CommandHandler("tags",        cmd_tags_list))
+    app.add_handler(CommandHandler("pro",         cmd_pro))
+    app.add_handler(CommandHandler("profile",     cmd_profile))
+    app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
+    app.add_handler(CommandHandler("autostart",   cmd_autostart))
 
     logger.info("Бот запущено!")
     app.run_polling()
