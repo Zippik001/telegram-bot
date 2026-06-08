@@ -202,6 +202,26 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📋 Напиши текст після «про себе», наприклад:\nпро себе Привіт! Мене звати Іван, 27 років 🙂"
             )
 
+    # Виклик меню через "Пєтя" (регістр не важливий)
+    if low.strip() in ("пєтя", "петя", "petya", "пєтя!", "петя!"):
+        text_menu = (
+            "🤖✨ Петро Інтерактивний до ваших послуг!\n\n"
+            "Щоб заповнити анкету — напиши:\nпро себе Привіт! Мене звати Іван, 27 років 🙂"
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Анкети учасників",    callback_data="menu_profiles")],
+            [InlineKeyboardButton("🎉 Запропонувати івент", callback_data="menu_event"),
+             InlineKeyboardButton("📅 Активні івенти",      callback_data="menu_events")],
+            [InlineKeyboardButton("🗑 Видалити всі івенти", callback_data="menu_clearevents")],
+            [InlineKeyboardButton("📢 Тегнути всіх",        callback_data="menu_gather")],
+            [InlineKeyboardButton("🌤 Погода",              callback_data="menu_weather")],
+            [InlineKeyboardButton("❓ Гостре питання",       callback_data="menu_question"),
+             InlineKeyboardButton("💬 Тема",                callback_data="menu_topic")],
+            [InlineKeyboardButton("📊 Звіт активності",     callback_data="menu_report")],
+            [InlineKeyboardButton("⚙️ Увімкнути розклад",   callback_data="menu_autostart")],
+        ])
+        await update.message.reply_text(text_menu, reply_markup=kb)
+
     # Зберігаємо для /gather
     storage.register_user(user)
 
@@ -654,31 +674,67 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Анкети учасників",     callback_data="menu_profiles")],
-        [InlineKeyboardButton("🎉 Запропонувати івент",  callback_data="menu_event")],
-        [InlineKeyboardButton("📅 Активні івенти",       callback_data="menu_events")],
+        [InlineKeyboardButton("🎉 Запропонувати івент",  callback_data="menu_event"),
+         InlineKeyboardButton("📅 Активні івенти",       callback_data="menu_events")],
+        [InlineKeyboardButton("🗑 Видалити всі івенти",  callback_data="menu_clearevents")],
         [InlineKeyboardButton("📢 Тегнути всіх",         callback_data="menu_gather")],
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-        [InlineKeyboardButton("❓ Гостре питання",        callback_data="menu_question")],
-        [InlineKeyboardButton("💬 Тема для розмови",     callback_data="menu_topic")],
+        [InlineKeyboardButton("❓ Гостре питання",        callback_data="menu_question"),
+         InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
         [InlineKeyboardButton("📊 Звіт активності",      callback_data="menu_report")],
         [InlineKeyboardButton("⚙️ Увімкнути розклад",    callback_data="menu_autostart")],
     ])
     await update.message.reply_text(text, reply_markup=keyboard)
 
 async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
+    q       = update.callback_query
     await q.answer()
-    action = q.data.replace("menu_", "")
-    fake = q.message  # використовуємо для контексту
+    action  = q.data.replace("menu_", "")
+    chat_id = q.message.chat_id
 
     if action == "profiles":
-        await cmd_profiles_list.__wrapped__(q, context) if hasattr(cmd_profiles_list, "__wrapped__") else await _menu_profiles(q, context)
+        await _menu_profiles(q, context)
+
     elif action == "event":
-        await cmd_event(q, context)
+        rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
+                for key, label in EVENT_TYPES.items()]
+        await q.message.reply_text(
+            "🎉 Створити івент\n\nОбери тип події:",
+            reply_markup=InlineKeyboardMarkup(rows)
+        )
+
     elif action == "events":
-        await cmd_events_list(q, context)
+        ev_list = _events.get(chat_id, [])
+        if not ev_list:
+            await q.message.reply_text("📭 Немає активних івентів.\n\nЗапропонуй через кнопку вище!")
+        else:
+            await q.message.reply_text(f"📋 Активні івенти ({len(ev_list)}):")
+            for ev in ev_list:
+                await q.message.reply_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+
     elif action == "gather":
-        await cmd_gather(q, context)
+        tags = storage.load_tags()
+        if not tags:
+            await q.message.reply_text("😔 Список порожній. Бот запам\'ятовує людей коли вони пишуть у групі.")
+            return
+        with_username = []
+        without_username = []
+        for uid, u in tags.items():
+            if u.get("username"):
+                uname = u["username"]
+                with_username.append(f"@{uname}")
+            else:
+                without_username.append(u["name"])
+        all_mentions = with_username + without_username
+        text = "📢 Збір! 👋\n\n" + " ".join(all_mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
+        sent = await q.message.reply_text(text)
+        async def delete_it(ctx):
+            try:
+                await ctx.bot.delete_message(chat_id, sent.message_id)
+            except Exception:
+                pass
+        context.job_queue.run_once(delete_it, when=60)
+
     elif action == "weather":
         msg = await q.message.reply_text("⏳ Отримую погоду...")
         data = await fetch_weather()
@@ -686,14 +742,34 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(build_weather_text(data), parse_mode="Markdown")
         else:
             await msg.edit_text("😔 Не вдалось отримати погоду.")
+
     elif action == "question":
         await q.message.reply_text(f"❓ {random.choice(RANDOM_QUESTIONS)}")
+
     elif action == "topic":
         await q.message.reply_text(random.choice(DISCUSSION_TOPICS), parse_mode="Markdown")
+
     elif action == "report":
         await _menu_report(q, context)
+
     elif action == "autostart":
         await _menu_autostart(q, context)
+
+    elif action == "clearevents":
+        ev_list = _events.get(chat_id, [])
+        for ev in ev_list:
+            if ev.get("msg_id"):
+                try:
+                    await context.bot.delete_message(chat_id, ev["msg_id"])
+                except Exception:
+                    pass
+        try:
+            await context.bot.unpin_all_chat_messages(chat_id)
+        except Exception:
+            pass
+        _events[chat_id] = []
+        storage.save_events(_events)
+        await q.message.reply_text("🗑 Всі івенти видалено!")
 
 async def _menu_profiles(q, context):
     profiles = storage.load_profiles()
