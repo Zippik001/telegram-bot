@@ -1,45 +1,65 @@
 import json
+import logging
 import os
 
-DATA_DIR = "/data"
+logger = logging.getLogger(__name__)
+
+# Якщо /data не існує (немає Volume) — зберігаємо поруч з ботом
+DATA_DIR = "/data" if os.path.isdir("/data") else os.path.dirname(os.path.abspath(__file__))
 os.makedirs(DATA_DIR, exist_ok=True)
 
-PROFILES_FILE = f"{DATA_DIR}/profiles.json"
-TAGS_FILE     = f"{DATA_DIR}/tags.json"
-EVENTS_FILE   = f"{DATA_DIR}/events.json"
+PROFILES_FILE = os.path.join(DATA_DIR, "profiles.json")
+TAGS_FILE     = os.path.join(DATA_DIR, "tags.json")
+EVENTS_FILE   = os.path.join(DATA_DIR, "events.json")
+
+logger.info(f"Storage dir: {DATA_DIR}")
 
 # ── Profiles ──────────────────────────────────
 
 def load_profiles() -> dict:
+    """Повертає { int(user_id): {text, username, tg_name} }"""
     try:
         with open(PROFILES_FILE, encoding="utf-8") as f:
             return {int(k): v for k, v in json.load(f).items()}
-    except Exception:
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.error(f"load_profiles: {e}")
         return {}
 
 def save_profiles(data: dict):
-    with open(PROFILES_FILE, "w", encoding="utf-8") as f:
-        json.dump({str(k): v for k, v in data.items()}, f, ensure_ascii=False, indent=2)
+    try:
+        with open(PROFILES_FILE, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in data.items()}, f, ensure_ascii=False, indent=2)
+        logger.info(f"Profiles saved: {len(data)} records → {PROFILES_FILE}")
+    except Exception as e:
+        logger.error(f"save_profiles: {e}")
 
-# ── Tags (список учасників для /gather) ───────
+# ── Tags ──────────────────────────────────────
 
 def load_tags() -> dict:
     """Повертає { str(user_id): {name, username} }"""
     try:
         with open(TAGS_FILE, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.error(f"load_tags: {e}")
         return {}
 
 def save_tags(data: dict):
-    with open(TAGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        with open(TAGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"save_tags: {e}")
 
 def register_user(user):
-    """Додає/оновлює користувача в tags при кожному повідомленні."""
+    """Зберігає учасника при кожному повідомленні."""
     tags = load_tags()
     tags[str(user.id)] = {
-        "name": user.first_name,
+        "name":     user.first_name,
         "username": user.username or "",
     }
     save_tags(tags)
@@ -50,9 +70,15 @@ def load_events() -> dict:
     try:
         with open(EVENTS_FILE, encoding="utf-8") as f:
             return {int(k): v for k, v in json.load(f).items()}
-    except Exception:
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.error(f"load_events: {e}")
         return {}
 
 def save_events(data: dict):
-    with open(EVENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump({str(k): v for k, v in data.items()}, f, ensure_ascii=False, indent=2)
+    try:
+        with open(EVENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in data.items()}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"save_events: {e}")
