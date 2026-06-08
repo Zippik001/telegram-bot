@@ -25,7 +25,6 @@ EVENT_AWAITING_CUSTOM = 10
 # ── Сховища ──
 activity: dict[int, dict[int, dict]] = defaultdict(dict)
 profiles: dict[int, dict] = {}
-anketa_waiting: set = set()  # user_id-и які зараз заповнюють анкету
 events: dict[int, list] = defaultdict(list)
 _event_counter = 0
 
@@ -338,17 +337,33 @@ async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def anketa_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    anketa_waiting.add(user.id)
+    text = " ".join(context.args) if context.args else ""
+
+    if not text:
+        await update.message.reply_text(
+            "📋 *Анкета*\n\n"
+            "Напиши про себе прямо після команди, наприклад:\n"
+            "`/anketa Привіт! Мене звати Олег, мені 27. Люблю настілки та походи`\n\n"
+            "Або просто:\n"
+            "`/anketa` Привіт я Катя, 24 роки, приїхала зі Львова",
+            parse_mode="Markdown"
+        )
+        return
+
+    profiles[user.id] = {
+        "text": text,
+        "username": user.username,
+        "tg_name": user.first_name,
+    }
+    mention = f"@{user.username}" if user.username else user.first_name
     await update.message.reply_text(
-        "📋 *Анкета*\n\n"
-        "Напиши будь-що про себе в одному повідомленні — в довільній формі.\n"
-        "Ім'я, вік, звідки, чим займаєшся, хобі, цікаві факти — все що хочеш щоб знали.\n\n"
-        "_Напиши текст нижче або /cancel щоб скасувати._",
+        f"✅ *Анкету збережено!*\n\n"
+        f"_{text}_\n\n"
+        f"Переглянути: /profile",
         parse_mode="Markdown"
     )
 
 async def anketa_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    anketa_waiting.discard(update.effective_user.id)
     await update.message.reply_text("❌ Скасовано.")
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -402,23 +417,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat_id = update.effective_chat.id
     if not user or user.is_bot:
-        return
-
-    # Якщо людина заповнює анкету — зберігаємо і виходимо
-    if user.id in anketa_waiting:
-        anketa_waiting.discard(user.id)
-        profiles[user.id] = {
-            "text": update.message.text,
-            "username": user.username,
-            "tg_name": user.first_name,
-        }
-        mention = f"@{user.username}" if user.username else user.first_name
-        await update.message.reply_text(
-            f"✅ *Анкету збережено!*\n\n"
-            f"_{update.message.text}_\n\n"
-            f"Переглянути: /profile або /profile {mention}",
-            parse_mode="Markdown"
-        )
         return
 
     # Рахуємо активність
