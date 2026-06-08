@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 import random
 import pytz
 import aiohttp
@@ -22,11 +24,51 @@ WEATHER_CITY_UA = "Братислава"
 ANKETA_TEXT = 0
 EVENT_AWAITING_CUSTOM = 10
 
+# ── Файли для збереження даних ──
+DATA_DIR = "/data"
+PROFILES_FILE = os.path.join(DATA_DIR, "profiles.json")
+EVENTS_FILE   = os.path.join(DATA_DIR, "events.json")
+
+def ensure_data_dir():
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+def save_profiles():
+    ensure_data_dir()
+    try:
+        with open(PROFILES_FILE, "w", encoding="utf-8") as f:
+            json.dump(profiles, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"save_profiles error: {e}")
+
+def load_profiles():
+    try:
+        with open(PROFILES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {int(k): v for k, v in data.items()}
+    except Exception:
+        return {}
+
+def save_events():
+    ensure_data_dir()
+    try:
+        with open(EVENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(dict(events), f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"save_events error: {e}")
+
+def load_events():
+    try:
+        with open(EVENTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return defaultdict(list, {int(k): v for k, v in data.items()})
+    except Exception:
+        return defaultdict(list)
+
 # ── Сховища ──
+profiles: dict[int, dict] = load_profiles()
+events: dict[int, list] = load_events()
 activity: dict[int, dict[int, dict]] = defaultdict(dict)
-profiles: dict[int, dict] = {}
-events: dict[int, list] = defaultdict(list)
-_event_counter = 0
+_event_counter = max((e["id"] for evs in events.values() for e in evs), default=0)
 
 # ─────────────────────────────────────────────
 # Контент — питання
@@ -250,6 +292,7 @@ async def cb_event_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "votes_named": {},  # uid -> (name, bool)
     }
     events[q.message.chat_id].append(ev)
+    save_events()
 
     await q.edit_message_text(event_card_text(ev), parse_mode="Markdown", reply_markup=event_card_kb(ev))
 
@@ -312,6 +355,7 @@ async def cb_event_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ev["votes"][user.id] = (user.first_name, vote)
     ev["votes_named"][user.id] = (user.first_name, vote)
 
+    save_events()
     try:
         await q.edit_message_text(event_card_text(ev), parse_mode="Markdown", reply_markup=event_card_kb(ev))
     except Exception:
@@ -329,6 +373,7 @@ async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     events[update.effective_chat.id] = []
+    save_events()
     await update.message.reply_text("🗑 Список івентів очищено.")
 
 # ─────────────────────────────────────────────
@@ -355,6 +400,7 @@ async def anketa_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "username": user.username,
         "tg_name": user.first_name,
     }
+    save_profiles()
     mention = f"@{user.username}" if user.username else user.first_name
     await update.message.reply_text(
         f"✅ *Анкету збережено!*\n\n"
