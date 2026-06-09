@@ -309,40 +309,48 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── ChatGPT (OpenAI) ──────────────────────────────────────────────────────────
 
 async def ask_ai(question: str) -> str:
-    """Відправляє запит до Google Gemini (безкоштовно)."""
+    """Відправляє запит до Groq (безкоштовно, без карти)."""
     import os
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
-        return "😔 Gemini API ключ не налаштовано. Додай GEMINI_API_KEY в Railway Variables.\nОтримай безкоштовно: aistudio.google.com"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-    system_prompt = (
-        "Ти — Петро Інтерактивний, дружній і веселий асистент "
-        "україномовної групи друзів у Братиславі. "
-        "Відповідай ТІЛЬКИ українською мовою. "
-        "Будь коротким, дотепним і позитивним. "
-        "Якщо просять анекдот — розкажи смішний. "
-        "Якщо просять фільм — порадь конкретно з коротким описом. "
-        "Якщо просять пораду — дай коротку і корисну."
-    )
+        return (
+            "😔 Groq API ключ не налаштовано.\n"
+            "Додай GROQ_API_KEY в Railway Variables.\n"
+            "Отримай безкоштовно: console.groq.com"
+        )
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "contents": [{"parts": [{"text": f"{system_prompt}\n\nЗапит: {question}"}]}],
-        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.9}
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": (
+                "Ти — Петро Інтерактивний, дружній і веселий асистент "
+                "україномовної групи друзів у Братиславі. "
+                "Відповідай ТІЛЬКИ українською мовою. "
+                "Будь коротким, дотепним і позитивним. "
+                "Якщо просять анекдот — розкажи смішний. "
+                "Якщо просять фільм — порадь конкретно з коротким описом. "
+                "Якщо просять пораду — дай коротку і корисну."
+            )},
+            {"role": "user", "content": question}
+        ],
+        "max_tokens": 400,
+        "temperature": 0.9,
     }
     try:
         async with aiohttp.ClientSession() as s:
-            async with s.post(url, json=payload,
+            async with s.post(url, json=payload, headers=headers,
                               timeout=aiohttp.ClientTimeout(total=30)) as r:
                 if r.status == 200:
                     data = await r.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    return data["choices"][0]["message"]["content"].strip()
                 else:
                     err = await r.text()
-                    logger.error(f"Gemini error {r.status}: {err}")
+                    logger.error(f"Groq error {r.status}: {err}")
                     return "😔 Помилка при зверненні до ШІ. Спробуй пізніше."
     except Exception as e:
-        logger.error(f"Gemini exception: {e}")
+        logger.error(f"Groq exception: {e}")
         return "😔 Не вдалось отримати відповідь від ШІ."
-
 
 # ── Вітання нових учасників ──────────────────────────────────────────────────
 
