@@ -679,8 +679,7 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✏️ Додай опис до івенту — де зустрічаємось, деталі, що брати тощо.\n\n"
         f"Або натисни кнопку щоб пропустити.",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("➡️ Пропустити", callback_data=f"ev_nodesc_{etype}_{day}"),
-            InlineKeyboardButton("❌ Скасувати",  callback_data="ev_cancel"),
+            InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel"),
         ]])
     )
 
@@ -698,34 +697,6 @@ async def _publish_event(bot, chat_id, ev):
     except Exception as e:
         logger.warning(f"Pin failed: {e}")
 
-
-async def cb_ev_nodesc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пропустити опис — публікувати без нього."""
-    q       = update.callback_query
-    await q.answer()
-    parts   = q.data.split("_")   # ev_nodesc_boardgames_3
-    etype   = parts[2]
-    day     = int(parts[3])
-    chat_id = q.message.chat_id
-    key     = f"ev_{q.from_user.id}_{chat_id}"
-    pending = context.bot_data.pop(key, {})
-
-    ev = {
-        "id":           next_event_id(),
-        "type":         etype,
-        "custom_title": pending.get("custom_title"),
-        "day":          day,
-        "description":  None,
-        "author":       pending.get("author") or q.from_user.first_name,
-        "author_id":    pending.get("author_id") or q.from_user.id,
-        "votes_named":  {},
-        "msg_id":       None,
-    }
-    try:
-        await q.edit_message_text("⏳ Публікую івент...")
-    except Exception:
-        pass
-    await _publish_event(q.bot, chat_id, ev)
 
 async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1394,7 +1365,6 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
     app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
-    app.add_handler(CallbackQueryHandler(cb_ev_nodesc, pattern=r"^ev_nodesc_"))
     app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
     app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no)_\d+$"))
 
