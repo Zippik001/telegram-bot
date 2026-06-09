@@ -1366,9 +1366,61 @@ def main():
     app.add_handler(CommandHandler("addmember",   cmd_addmember))
     app.add_handler(CommandHandler("removemember", cmd_removemember))
     app.add_handler(CommandHandler("listmembers", cmd_listmembers))
+    app.add_handler(CommandHandler("cleanupmembers", cmd_cleanup_members))
 
     logger.info("Бот запущено!")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
+
+async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Очищує всі списки від учасників яких вже немає в групі."""
+    chat_id = update.effective_chat.id
+
+    # Тільки адміни
+    try:
+        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if m.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Тільки адміністратори.")
+            return
+    except Exception:
+        pass
+
+    msg = await update.message.reply_text("⏳ Перевіряю учасників...")
+
+    tags     = storage.load_tags()
+    profiles = storage.load_profiles()
+    removed_names = []
+
+    for uid_str in list(tags.keys()):
+        try:
+            member = await context.bot.get_chat_member(chat_id, int(uid_str))
+            if member.status in ("left", "kicked", "banned"):
+                name = tags[uid_str].get("name", uid_str)
+                removed_names.append(name)
+                del tags[uid_str]
+                profiles.pop(int(uid_str), None)
+                activity.get(chat_id, {}).pop(int(uid_str), None)
+        except Exception:
+            name = tags[uid_str].get("name", uid_str)
+            removed_names.append(name)
+            del tags[uid_str]
+            profiles.pop(int(uid_str), None)
+            activity.get(chat_id, {}).pop(int(uid_str), None)
+
+    storage.save_tags(tags)
+    storage.save_profiles(profiles)
+
+    if removed_names:
+        await msg.edit_text(
+            f"✅ Очищено!\n\n"
+            f"🗑 Видалено з усіх списків ({len(removed_names)}): {', '.join(removed_names)}\n"
+            f"👥 Залишилось учасників: {len(tags)}"
+        )
+    else:
+        await msg.edit_text(
+            f"✅ Всі списки актуальні — нікого не видалено.\n"
+            f"👥 Учасників: {len(tags)}"
+        )
