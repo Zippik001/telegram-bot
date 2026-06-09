@@ -34,6 +34,9 @@ def next_event_id():
 
 activity: dict = defaultdict(dict)
 
+# { chat_id: {"text":..., "week":..., "accepted":[...], "done":[...], "skip":[...]} }
+_challenges: dict = {}
+
 RANDOM_QUESTIONS = [
     "🍑 Якби твої органи могли писати скарги на тебе — який орган подав би найтовщу папку і за що саме?",
     "🚿 Що ти робиш в душі з таким серйозним виразом обличчя, що якби хтось побачив — одразу б викликав лікаря?",
@@ -1259,17 +1262,24 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _menu_profiles(q, context):
     profiles = storage.load_profiles()
+    tags     = storage.load_tags()  # тільки ті хто зараз в групі
     if not profiles:
         await q.message.reply_text("📭 Ще ніхто не заповнив анкету.\n\nНапиши: про себе Привіт, мене звати...")
         return
+    # Показуємо тільки тих хто є в тегах (тобто в групі)
+    active_uids = {int(uid) for uid in tags.keys()}
+    filtered = {uid: p for uid, p in profiles.items() if uid in active_uids}
+    if not filtered:
+        await q.message.reply_text("📭 Ніхто з поточних учасників ще не заповнив анкету.")
+        return
     keyboard = []
-    for uid, p in profiles.items():
+    for uid, p in filtered.items():
         label = p["tg_name"]
         if p.get("username"):
             label += f" (@{p['username']})"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"showprofile_{uid}")])
     await q.message.reply_text(
-        f"📋 Анкети учасників: {len(profiles)}\n\nНатисни на ім'я 👇",
+        f"📋 Анкети учасників групи: {len(filtered)}\n\nНатисни на ім'я 👇",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
