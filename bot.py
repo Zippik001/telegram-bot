@@ -314,7 +314,7 @@ async def ask_ai(question: str) -> str:
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         return "😔 Gemini API ключ не налаштовано. Додай GEMINI_API_KEY в Railway Variables.\nОтримай безкоштовно: aistudio.google.com"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     system_prompt = (
         "Ти — Петро Інтерактивний, дружній і веселий асистент "
         "україномовної групи друзів у Братиславі. "
