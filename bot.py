@@ -240,6 +240,9 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or user.is_bot:
         return
 
+    # Завжди реєструємо користувача — незалежно від вмісту повідомлення
+    storage.register_user(user)
+
     text = (update.message.text or "").strip()
     low  = text.lower()
 
@@ -271,7 +274,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             thinking = await update.message.reply_text("🤔 Думаю...")
             answer = await ask_ai(question)
             await thinking.edit_text(f"🤖 {answer}")
-            storage.register_user(user)
             if user.id not in activity[chat_id]:
                 activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
             activity[chat_id][user.id]["name"] = user.first_name
@@ -314,9 +316,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🎭 Анонімне повідомлення:\n\n" + anon_text
             )
         return
-
-    # Зберігаємо для /gather
-    storage.register_user(user)
 
     # Активність
     if user.id not in activity[chat_id]:
@@ -486,45 +485,66 @@ async def cmd_tags_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"• {u['name']} ({mention})")
     await update.message.reply_text("\n".join(lines))
 
-async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-
-    # Отримуємо список учасників з Telegram API напряму
-    # get_chat_members доступний тільки для ботів-адмінів
+async def _get_active_members(bot, chat_id: int) -> list[dict]:
+    """Перевіряє tags.json через API і повертає тільки активних учасників.
+    Попутно очищує tags.json від тих хто вийшов."""
     tags = storage.load_tags()
+    active = []
+    to_remove = []
 
-    with_username = []
-    without_username = []
-
-    # Спочатку перевіряємо збережених учасників
     for uid_str, u in tags.items():
         try:
-            member = await context.bot.get_chat_member(chat_id, int(uid_str))
+            member = await bot.get_chat_member(chat_id, int(uid_str))
             if member.status in ("left", "kicked", "banned"):
+                to_remove.append(uid_str)
                 continue
-            # Оновлюємо дані на свіжі
-            if member.user.username:
-                with_username.append(f"@{member.user.username}")
-            else:
-                without_username.append(member.user.first_name)
+            # Оновлюємо дані на свіжі з API
+            active.append({
+                "id": int(uid_str),
+                "name": member.user.first_name,
+                "username": member.user.username or "",
+            })
         except Exception:
-            continue
+            # Якщо користувач не знайдений — теж видаляємо
+            to_remove.append(uid_str)
 
-    if not with_username and not without_username:
-        await update.message.reply_text(
-            "😔 Немає активних учасників.\n\n"
-            "Бот запам'ятовує людей коли вони пишуть у групі — попроси всіх написати хоч одне повідомлення."
+    # Очищуємо tags.json
+    if to_remove:
+        for uid_str in to_remove:
+            tags.pop(uid_str, None)
+        storage.save_tags(tags)
+
+    return active
+
+
+async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    msg = await update.message.reply_text("⏳ Збираю список учасників...")
+    members = await _get_active_members(context.bot, chat_id)
+
+    if not members:
+        await msg.edit_text(
+            "😔 Список порожній.\n\n"
+            "Бот запам\'ятовує людей коли вони пишуть у групі."
         )
         return
 
-    custom_text = " ".join(context.args) if context.args else "Збір! 👋"
+    with_username    = ["@" + m["username"] for m in members if m.get("username")]
+    without_username = [m["name"] for m in members if not m.get("username")]
     all_mentions = with_username + without_username
+
+    custom_text = " ".join(context.args) if context.args else "Збір! 👋"
     text = f"📢 {custom_text}\n\n" + " ".join(all_mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
-    sent = await update.message.reply_text(text)
+
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    sent = await context.bot.send_message(chat_id, text)
 
     async def delete_it(ctx):
         try:
-            await ctx.bot.delete_message(update.effective_chat.id, sent.message_id)
+            await ctx.bot.delete_message(chat_id, sent.message_id)
         except Exception:
             pass
 
@@ -670,7 +690,7 @@ async def _publish_event(bot, chat_id, ev):
     if chat_id not in _events:
         _events[chat_id] = []
     _events[chat_id].append(ev)
-    sent = await bot.send_message(chat_id, event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+    sent = await bot.send_message(chat_id, event_text(ev), reply_markup=event_kb(ev))
     ev["msg_id"] = sent.message_id
     storage.save_events(_events)
     try:
@@ -733,7 +753,7 @@ async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer(vote_text)
 
     try:
-        await q.edit_message_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+        await q.edit_message_text(event_text(ev), reply_markup=event_kb(ev))
     except Exception:
         pass
 
@@ -955,7 +975,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await q.message.reply_text(f"📋 Активні івенти ({len(ev_list)}):")
             for ev in ev_list:
-                await q.message.reply_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+                await q.message.reply_text(event_text(ev), reply_markup=event_kb(ev))
 
     elif action == "gather":
         tags = storage.load_tags()
@@ -1170,6 +1190,143 @@ async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Адмін додає учасників в список для /gather.
+    Використання: /addmember @username1 @username2 або реплай на повідомлення"""
+    chat_id = update.effective_chat.id
+
+    # Перевіряємо чи адмін
+    try:
+        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if member.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Тільки адміністратори можуть додавати учасників.")
+            return
+    except Exception:
+        pass
+
+    tags = storage.load_tags()
+    added = []
+    not_found = []
+
+    # Якщо реплай на повідомлення — додаємо автора
+    if update.message.reply_to_message:
+        user = update.message.reply_to_message.from_user
+        if user and not user.is_bot:
+            tags[str(user.id)] = {
+                "name": user.first_name,
+                "username": user.username or "",
+            }
+            added.append(user.first_name)
+
+    # Якщо є mention'и в повідомленні
+    for entity in (update.message.entities or []):
+        if entity.type == "mention":
+            username = update.message.text[entity.offset+1:entity.offset+entity.length]
+            # Знаходимо user_id по username через get_chat_member
+            try:
+                m = await context.bot.get_chat_member(chat_id, f"@{username}")
+                tags[str(m.user.id)] = {
+                    "name": m.user.first_name,
+                    "username": m.user.username or "",
+                }
+                added.append(m.user.first_name)
+            except Exception:
+                not_found.append(f"@{username}")
+        elif entity.type == "text_mention":
+            user = entity.user
+            tags[str(user.id)] = {
+                "name": user.first_name,
+                "username": user.username or "",
+            }
+            added.append(user.first_name)
+
+    if not added and not not_found:
+        await update.message.reply_text(
+            "ℹ️ Як використовувати:\n\n"
+            "• /addmember @username — додати одного\n"
+            "• /addmember @user1 @user2 — додати кількох\n"
+            "• Відповідь на повідомлення + /addmember — додати автора"
+        )
+        return
+
+    storage.save_tags(tags)
+
+    lines = []
+    if added:
+        lines.append(f"✅ Додано ({len(added)}): {', '.join(added)}")
+    if not_found:
+        lines.append(f"❌ Не знайдено: {', '.join(not_found)}")
+    lines.append(f"\n👥 Всього в списку: {len(tags)}")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Адмін видаляє учасника зі списку вручну."""
+    chat_id = update.effective_chat.id
+
+    try:
+        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if member.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Тільки адміністратори можуть видаляти учасників.")
+            return
+    except Exception:
+        pass
+
+    tags = storage.load_tags()
+    removed = []
+
+    if update.message.reply_to_message:
+        user = update.message.reply_to_message.from_user
+        if user and str(user.id) in tags:
+            del tags[str(user.id)]
+            removed.append(user.first_name)
+
+    for entity in (update.message.entities or []):
+        if entity.type == "mention":
+            username = update.message.text[entity.offset+1:entity.offset+entity.length]
+            for uid_str, u in list(tags.items()):
+                if (u.get("username") or "").lower() == username.lower():
+                    del tags[uid_str]
+                    removed.append(u["name"])
+                    break
+        elif entity.type == "text_mention":
+            uid_str = str(entity.user.id)
+            if uid_str in tags:
+                removed.append(tags[uid_str]["name"])
+                del tags[uid_str]
+
+    if not removed:
+        await update.message.reply_text(
+            "ℹ️ Вкажи кого видалити:\n"
+            "/removemember @username або відповідь на повідомлення"
+        )
+        return
+
+    storage.save_tags(tags)
+    await update.message.reply_text(
+        f"🗑 Видалено: {', '.join(removed)}\n"
+        f"👥 Залишилось в списку: {len(tags)}"
+    )
+
+
+async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показати поточний список учасників для /gather."""
+    tags = storage.load_tags()
+    if not tags:
+        await update.message.reply_text(
+            "📭 Список порожній.\n\n"
+            "Додай учасників: /addmember @username"
+        )
+        return
+    lines = [f"👥 Список учасників для /gather ({len(tags)}):\n"]
+    for uid, u in tags.items():
+        mention = f"@{u['username']}" if u.get("username") else u["name"]
+        lines.append(f"• {u['name']} ({mention})")
+    lines.append("\nДодати: /addmember @username")
+    lines.append("Видалити: /removemember @username")
+    await update.message.reply_text("\n".join(lines))
+
+
 def main():
     import os
     TOKEN = os.environ.get("BOT_TOKEN")
@@ -1206,6 +1363,9 @@ def main():
     app.add_handler(CommandHandler("profile",     cmd_profile))
     app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
     app.add_handler(CommandHandler("autostart",   cmd_autostart))
+    app.add_handler(CommandHandler("addmember",   cmd_addmember))
+    app.add_handler(CommandHandler("removemember", cmd_removemember))
+    app.add_handler(CommandHandler("listmembers", cmd_listmembers))
 
     logger.info("Бот запущено!")
     app.run_polling()
