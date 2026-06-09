@@ -298,6 +298,23 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         await update.message.reply_text(_r.choice(petya_texts), parse_mode="Markdown", reply_markup=kb)
 
+    # Анонімне повідомлення: починається з "анонім" (або "anonym")
+    if low.startswith("анонім ") or low.startswith("anonym "):
+        for prefix in ("анонім ", "anonym "):
+            if low.startswith(prefix):
+                anon_text = text[len(prefix):].strip()
+                break
+        if anon_text:
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id,
+                "🎭 Анонімне повідомлення:\n\n" + anon_text
+            )
+        return
+
     # Зберігаємо для /gather
     storage.register_user(user)
 
@@ -365,6 +382,8 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for member in update.message.new_chat_members:
         if member.is_bot:
             continue
+        # Одразу зберігаємо в теги щоб /gather бачив нового учасника
+        storage.register_user(member)
         name = member.first_name
         await update.message.reply_text(
             f"👋 Вітаємо, {name}!\n\n"
@@ -468,29 +487,34 @@ async def cmd_tags_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tags    = storage.load_tags()
     chat_id = update.effective_chat.id
-    if not tags:
-        await update.message.reply_text("😔 Список порожній. Бот запам'ятовує людей коли вони пишуть у групі.")
-        return
+
+    # Отримуємо список учасників з Telegram API напряму
+    # get_chat_members доступний тільки для ботів-адмінів
+    tags = storage.load_tags()
 
     with_username = []
     without_username = []
-    for uid, u in tags.items():
-        # Перевіряємо чи ще в групі
+
+    # Спочатку перевіряємо збережених учасників
+    for uid_str, u in tags.items():
         try:
-            member = await context.bot.get_chat_member(chat_id, int(uid))
+            member = await context.bot.get_chat_member(chat_id, int(uid_str))
             if member.status in ("left", "kicked", "banned"):
                 continue
+            # Оновлюємо дані на свіжі
+            if member.user.username:
+                with_username.append(f"@{member.user.username}")
+            else:
+                without_username.append(member.user.first_name)
         except Exception:
             continue
-        if u.get("username"):
-            with_username.append(f"@{u['username']}")
-        else:
-            without_username.append(u["name"])
 
     if not with_username and not without_username:
-        await update.message.reply_text("😔 Немає активних учасників для тегу.")
+        await update.message.reply_text(
+            "😔 Немає активних учасників.\n\n"
+            "Бот запам'ятовує людей коли вони пишуть у групі — попроси всіх написати хоч одне повідомлення."
+        )
         return
 
     custom_text = " ".join(context.args) if context.args else "Збір! 👋"
@@ -1132,70 +1156,18 @@ async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del tags[str(user.id)]
         storage.save_tags(tags)
 
-    await update.message.reply_text(
-        f"👋 {user.first_name} покинув групу. Видалено з анкет і списку учасників."
-    )
-
-
-
-
-# ── Анонімні зізнання через особисте повідомлення боту ───────────────────────
-# Зберігаємо chat_id групи для кожного user_id хто написав боту в ЛС
-_confession_pending: dict = {}  # user_id -> chat_id групи
-
-async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обробляє особисті повідомлення — для анонімних зізнань."""
-    user    = update.effective_user
-    chat    = update.effective_chat
-    text    = (update.message.text or "").strip()
-    low     = text.lower()
-
-    # /start в особистому чаті — пояснення
-    if low in ("/start", "/confession"):
-        # Зберігаємо що ця людина хоче надіслати зізнання
-        # Але потрібно знати в яку групу — питаємо
-        await update.message.reply_text(
-            "🎭 Привіт! Я приймаю анонімні зізнання.\n\n"
-            "Просто напиши своє зізнання — я надішлю його в групу анонімно 😈\n\n"
-            "Ніхто не дізнається що це ти!"
-        )
-        return
-
-    # Якщо є збережений chat_id групи — надсилаємо туди
-    group_chat_id = context.bot_data.get(f"confession_group_{user.id}")
-    if group_chat_id:
-        await context.bot.send_message(
-            group_chat_id,
-            f"🎭 Анонімне зізнання:\n\n{he(text)}"
-        )
-        await update.message.reply_text("✅ Надіслано анонімно! Ніхто не знає 🤫")
-    else:
-        await update.message.reply_text(
-            "😔 Не знаю в яку групу надсилати.\n\n"
-            "Спочатку напиши в групі команду /confess — і потім одразу пиши мені сюди своє зізнання."
-        )
-
-async def cmd_confess_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """В групі: /confess — запускає режим анонімного зізнання."""
-    user    = update.effective_user
+    # Видалити зі статистики активності
     chat_id = update.effective_chat.id
-    # Зберігаємо для цього user chat_id групи
-    context.bot_data[f"confession_group_{user.id}"] = chat_id
-    bot_info = await context.bot.get_me()
-    bot_username = bot_info.username
+    if user.id in activity.get(chat_id, {}):
+        del activity[chat_id][user.id]
+
     await update.message.reply_text(
-        f"🎭 Режим зізнання активовано!\n\n"
-        f"Напиши мені в особисті повідомлення — я надішлю анонімно:\n"
-        f"👉 @{bot_username}",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✍️ Написати зізнання", url=f"https://t.me/{bot_username}?start=confession")
-        ]])
+        f"👋 {user.first_name} покинув групу. Видалено з анкет, списку учасників і статистики."
     )
-    # Видаляємо команду щоб не видно хто запустив
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
+
+
+
+
 
 
 def main():
@@ -1210,8 +1182,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_message))
-    app.add_handler(CommandHandler("confess", cmd_confess_setup))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
