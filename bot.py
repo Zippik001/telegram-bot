@@ -15,7 +15,7 @@ import storage
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-KYIV_TZ = pytz.timezone("Europe/Kyiv")
+KYIV_TZ = pytz.timezone("Europe/Bratislava")  # UTC+1/+2 (Братислава)
 
 def he(text: str) -> str:
     """Екранує HTML спецсимволи."""
@@ -107,11 +107,14 @@ DAY_EMOJI = ["📅","📅","📅","📅","🎉","🎉","😴"]
 
 # ── Погода ────────────────────────────────────
 
-async def fetch_weather():
+async def fetch_weather_full():
+    """Погода на весь день — поточна + прогноз по годинах."""
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={WEATHER_LAT}&longitude={WEATHER_LON}"
         "&current=temperature_2m,apparent_temperature,weathercode,windspeed_10m,relative_humidity_2m"
+        "&hourly=temperature_2m,weathercode,precipitation_probability"
+        "&forecast_days=1"
         "&timezone=Europe%2FBratislava"
     )
     try:
@@ -122,6 +125,10 @@ async def fetch_weather():
     except Exception as e:
         logger.error(f"Weather: {e}")
     return None
+
+# Залишаємо для сумісності
+async def fetch_weather():
+    return await fetch_weather_full()
 
 def wmo_emoji(c):
     if c == 0: return "☀️"
@@ -139,42 +146,90 @@ def wmo_desc(c):
             45:"Туман",51:"Мряка",61:"Дощ",63:"Помірний дощ",65:"Сильний дощ",
             71:"Сніг",80:"Злива",95:"Гроза"}.get(c,"Змінна погода")
 
-def weather_tip(code, temp, wind):
-    if 51<=code<=67 or 80<=code<=82: return "Візьми парасолю ☂️"
-    if code in (95,96,99): return "Краще залишись вдома, гроза ⛈"
-    if 71<=code<=77: return "Є сніг — обережно 🌨"
-    if temp < 5: return "Вдягнись тепло 🧣"
-    if temp < 12: return "Захопи куртку 🧥"
-    if temp > 28: return "Пий більше води 💧"
-    if wind > 40: return "Сильний вітер 💨"
-    return "Чудовий день для прогулянки 🚶"
+def weather_tip_full(slots):
+    """Загальна порада на день на основі всіх слотів."""
+    codes = [s["code"] for s in slots]
+    temps = [s["temp"] for s in slots]
+    has_rain  = any(51<=c<=82 for c in codes)
+    has_storm = any(c in (95,96,99) for c in codes)
+    has_snow  = any(71<=c<=77 for c in codes)
+    min_t = min(temps)
+    max_t = max(temps)
 
+    funny = []
+    if has_storm:
+        funny.append("Гроза? Залишайся вдома, стань людиною-диваном ⛈🛋")
+    elif has_rain:
+        funny.append("Дощ іде — хороший привід не виходити і дивитись серіали 🌧🍿")
+    elif has_snow:
+        funny.append("Сніжок! Чудово, якщо ти пінгвін 🐧❄️")
+    elif max_t > 28:
+        funny.append("Спека! Одягнися як сонячна батарея і плавь тротуари ☀️🥵")
+    elif min_t < 3:
+        funny.append("Холодно як у серці того хто не відповідає на повідомлення 🥶")
+    elif max_t > 18:
+        funny.append("Погода — 10 з 10, навіть монітор соромно відкривати 🌞")
+    else:
+        funny.append("Звичайна братиславська погода — непередбачувана як настрій в понеділок 😅")
+    return funny[0]
+
+def build_weather_full(data):
+    """Будує повідомлення з погодою по 5 часових слотах."""
+    hours_map = {8: "🌅 Ранок",  11: "☀️ Полудень",
+                 14: "🌤 День",  17: "🌇 Вечір", 20: "🌙 Ніч"}
+
+    hourly_times = data["hourly"]["time"]
+    hourly_temps = data["hourly"]["temperature_2m"]
+    hourly_codes = data["hourly"]["weathercode"]
+    hourly_prec  = data["hourly"]["precipitation_probability"]
+
+    slots = []
+    for target_h, label in hours_map.items():
+        # Знаходимо індекс потрібної години
+        idx = next((i for i, t in enumerate(hourly_times) if f"T{target_h:02d}:00" in t), None)
+        if idx is None:
+            continue
+        temp = round(hourly_temps[idx])
+        code = int(hourly_codes[idx])
+        prec = int(hourly_prec[idx])
+        emoji = wmo_emoji(code)
+        desc  = wmo_desc(code)
+        prec_str = f" 💧{prec}%" if prec > 20 else ""
+        slots.append({
+            "label": label, "temp": temp, "code": code,
+            "emoji": emoji, "desc": desc, "prec_str": prec_str
+        })
+
+    now = datetime.now(pytz.timezone("Europe/Bratislava"))
+    date_str = now.strftime("%d.%m.%Y")
+    weekdays = ["Понеділок","Вівторок","Середа","Четвер","П'ятниця","Субота","Неділя"]
+    weekday = weekdays[now.weekday()]
+    lines = [f"🌍 *Погода в Братиславі*\n📅 {weekday}, {date_str}\n"]
+    for s in slots:
+        lines.append(f"{s['label']}: {s['emoji']} {s['temp']}°C — {s['desc']}{s['prec_str']}")
+
+    tip = weather_tip_full(slots) if slots else "Гарного дня! ☀️"
+    lines.append(f"\n💡 _{tip}_")
+    return "\n".join(lines)
+
+# Стара функція для сумісності
 def build_weather_text(data):
-    c     = data["current"]
-    temp  = round(c["temperature_2m"])
-    feels = round(c["apparent_temperature"])
-    wind  = round(c["windspeed_10m"])
-    hum   = round(c["relative_humidity_2m"])
-    code  = int(c["weathercode"])
-    return (
-        f"🌍 *Погода в Братиславі*\n\n"
-        f"{wmo_emoji(code)} *{wmo_desc(code)}* · {temp}°C (відчувається {feels}°C)\n"
-        f"💨 Вітер: {wind} км/год  💧 Вологість: {hum}%\n\n"
-        f"💡 _{weather_tip(code, temp, wind)}_\n\nГарного дня! ☀️"
-    )
+    return build_weather_full(data)
 
 async def cmd_weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ Отримую погоду...")
-    data = await fetch_weather()
+    data = await fetch_weather_full()
     if data:
-        await msg.edit_text(build_weather_text(data), parse_mode="Markdown")
+        await msg.edit_text(build_weather_full(data), parse_mode="Markdown")
     else:
         await msg.edit_text("😔 Не вдалось отримати погоду.")
 
 async def sched_weather(context: ContextTypes.DEFAULT_TYPE):
-    data = await fetch_weather()
+    data = await fetch_weather_full()
     if data:
-        await context.bot.send_message(context.job.data["chat_id"], build_weather_text(data), parse_mode="Markdown")
+        await context.bot.send_message(
+            context.job.data["chat_id"], build_weather_full(data), parse_mode="Markdown"
+        )
 
 # ── Трекер — анкета + теги + активність ───────
 
@@ -201,6 +256,26 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "📋 Напиши текст після «про себе», наприклад:\nпро себе Привіт! Мене звати Іван, 27 років 🙂"
             )
+
+    # ChatGPT: якщо повідомлення починається з "пєтя," або "@botname" + текст
+    petya_triggers = ("пєтя,", "петя,", "пєтя питання", "петя питання", "питання пєтя", "ai,", "шт,")
+    if any(low.startswith(t) for t in petya_triggers) or (low.startswith("пєтя ") and len(low) > 6):
+        # Витягуємо питання після тригера
+        question = text
+        for t in ("пєтя,", "петя,", "пєтя ", "петя ", "ai, ", "шт, "):
+            if low.startswith(t):
+                question = text[len(t):].strip()
+                break
+        if question:
+            thinking = await update.message.reply_text("🤔 Думаю...")
+            answer = await ask_chatgpt(question)
+            await thinking.edit_text(f"🤖 {answer}")
+            storage.register_user(user)
+            if user.id not in activity[chat_id]:
+                activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
+            activity[chat_id][user.id]["name"] = user.first_name
+            activity[chat_id][user.id]["count"] += 1
+            return
 
     # Виклик меню через "Пєтя" (регістр не важливий)
     if low.strip() in ("пєтя", "петя", "petya", "пєтя!", "петя!"):
@@ -230,6 +305,68 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
     activity[chat_id][user.id]["name"]   = user.first_name
     activity[chat_id][user.id]["count"] += 1
+
+# ── ChatGPT (OpenAI) ──────────────────────────────────────────────────────────
+
+async def ask_chatgpt(question: str) -> str:
+    """Відправляє запит до OpenAI і повертає відповідь."""
+    import os
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return "😔 OpenAI API ключ не налаштовано. Додай OPENAI_API_KEY в Railway Variables."
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": (
+                "Ти — Петро Інтерактивний, дружній асистент україномовної групи друзів у Братиславі. "
+                "Відповідай українською, коротко і з гумором. "
+                "Допомагай з питаннями, жартуй, будь позитивним."
+            )},
+            {"role": "user", "content": question}
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8,
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, json=payload, headers=headers,
+                              timeout=aiohttp.ClientTimeout(total=30)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    return data["choices"][0]["message"]["content"].strip()
+                else:
+                    err = await r.text()
+                    logger.error(f"OpenAI error {r.status}: {err}")
+                    return "😔 Помилка при зверненні до ШІ. Спробуй пізніше."
+    except Exception as e:
+        logger.error(f"OpenAI exception: {e}")
+        return "😔 Не вдалось отримати відповідь від ШІ."
+
+
+# ── Вітання нових учасників ──────────────────────────────────────────────────
+
+async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вітає нового учасника і пояснює правила."""
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+        name = member.first_name
+        await update.message.reply_text(
+            f"👋 Вітаємо, {name}!\n\n"
+            f"Радий бачити тебе в нашій компанії 🎉\n\n"
+            f"📋 *Заповни анкету* — напиши повідомлення:\n"
+            f"_про себе_ і далі розкажи хто ти, звідки, що любиш\n\n"
+            f"📌 *Правила групи:*\n"
+            f"✅ Будь активним — пиши, пропонуй івенти, відповідай\n"
+            f"😊 Будь позитивним — токсичність тут не в моді\n"
+            f"🤝 Поважай інших — ми всі тут для гарного часу\n"
+            f"🎉 Пропонуй ідеї — краща ідея та яку ти запропонував\n\n"
+            f"Натисни *Пєтя* або /start щоб побачити що я вмію 🤖",
+            parse_mode="Markdown"
+        )
+
 
 # ── Анкети ────────────────────────────────────
 
@@ -848,6 +985,7 @@ def main():
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
