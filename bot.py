@@ -34,8 +34,6 @@ def next_event_id():
 
 activity: dict = defaultdict(dict)
 
-# { chat_id: {"text":..., "week":..., "accepted":[...], "done":[...], "skip":[...]} }
-_challenges: dict = {}
 
 RANDOM_QUESTIONS = [
     "🍑 Якби твої органи могли писати скарги на тебе — який орган подав би найтовщу папку і за що саме?",
@@ -294,8 +292,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("📅 Активні івенти",      callback_data="menu_events")],
             [InlineKeyboardButton("📢 Тегнути всіх",        callback_data="menu_gather")],
             [InlineKeyboardButton("🌤 Погода",              callback_data="menu_weather")],
-            [InlineKeyboardButton("💪 Виклик тижня",        callback_data="menu_challenge"),
-             InlineKeyboardButton("📊 Статус",              callback_data="menu_challengestats")],
             [InlineKeyboardButton("❓ Гостре питання",       callback_data="menu_question"),
              InlineKeyboardButton("💬 Тема",                callback_data="menu_topic")],
             [InlineKeyboardButton("📊 Звіт активності",     callback_data="menu_report")],
@@ -862,239 +858,11 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
         activity[chat_id][uid]["count"] = 0
 
 
-WEEKLY_CHALLENGES = [
-    "🎯 Виклик тижня: познайомся з кимось новим і розкажи групі одну цікаву річ про цю людину",
-    "📸 Виклик тижня: зроби фото найкрасивішого місця Братислави яке знайдеш цього тижня",
-    "🍳 Виклик тижня: приготуй щось що ніколи не готував — і надішли фото результату (навіть якщо провал)",
-    "🚶 Виклик тижня: пройди пішки маршрут якого ніколи не ходив у місті",
-    "📚 Виклик тижня: прочитай або послухай щось що виходить за межі твоїх звичних тем",
-    "🎲 Виклик тижня: запропонуй компанії активність яку ще ніхто не пропонував",
-    "💌 Виклик тижня: напиши комусь з групи приємне повідомлення без приводу",
-    "🌅 Виклик тижня: прокинься раніше звичного хоча б один день і розкажи що робив",
-    "🎭 Виклик тижня: спробуй щось чого боявся або відкладав — і звітуй в кінці тижня",
-    "🍜 Виклик тижня: відкрий для себе новий ресторан або кафе в Братиславі якого ще не був",
-    "🏃 Виклик тижня: зроби хоч одне фізичне активне — пробіжка, похід, велосипед",
-    "🤝 Виклик тижня: організуй або запропонуй зустріч з кимось з групи один на один",
-]
-
-WEEKLY_TITLES = [
-    ("🥇 Балакун тижня", "хто написав найбільше"),
-    ("🦔 Тихий геній", "хто написав найменше але влучно"),
-    ("🌙 Нічний філософ", "хто найчастіше писав після 22:00"),
-    ("⚡ Перший у чаті", "хто перший написав у понеділок"),
-    ("🎭 Провокатор тижня", "за найцікавіше питання"),
-    ("🏆 Організатор тижня", "хто запропонував івент"),
-    ("😴 Мовчун тижня", "хто написав найменше"),
-    ("🔥 Найактивніший", "без коментарів — і так зрозуміло"),
-]
-
-async def sched_weekly_challenge(context: ContextTypes.DEFAULT_TYPE):
-    """Щопонеділка о 10:30 — виклик тижня."""
-    chat_id = context.job.data["chat_id"]
-    challenge = random.choice(WEEKLY_CHALLENGES)
-    now = datetime.now(KYIV_TZ)
-    week = now.strftime("%Y-W%U")
-    _challenges[chat_id] = {"text": challenge, "week": week, "accepted": [], "done": [], "skip": []}
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Приймаю виклик!", callback_data="challenge_accept"),
-        InlineKeyboardButton("😅 Пропускаю", callback_data="challenge_skip"),
-    ]])
-    await context.bot.send_message(
-        chat_id,
-        f"💪 {challenge}\n\nХто в грі?",
-        reply_markup=kb
-    )
-
-async def cb_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q       = update.callback_query
-    await q.answer()
-    user    = q.from_user
-    chat_id = q.message.chat_id
-    ch      = _challenges.get(chat_id)
-
-    if q.data == "challenge_accept":
-        if ch and user.id not in [u["id"] for u in ch["accepted"]]:
-            ch["accepted"].append({"id": user.id, "name": user.first_name})
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
-        ]])
-        await q.message.reply_text(
-            f"💪 {user.first_name} прийняв виклик! Чекаємо звіту 😈\n\nКоли виконаєш — натисни кнопку:",
-            reply_markup=kb
-        )
-    elif q.data == "challenge_skip":
-        if ch and user.id not in [u["id"] for u in ch.get("skip", [])]:
-            if "skip" not in ch:
-                ch["skip"] = []
-            ch["skip"].append({"id": user.id, "name": user.first_name})
-        await q.message.reply_text(f"😅 {user.first_name} пропускає цього тижня. Буває!")
-    elif q.data == "challenge_done":
-        if ch and user.id not in [u["id"] for u in ch.get("done", [])]:
-            if "done" not in ch:
-                ch["done"] = []
-            ch["done"].append({"id": user.id, "name": user.first_name})
-        await q.message.reply_text(
-            f"🏆 {user.first_name} виконав виклик! Легенда тижня 🎉\n\nРозкажи як — напиши в чат!"
-        )
-
-async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ручний виклик тижня."""
-    chat_id = update.effective_chat.id
-    challenge = random.choice(WEEKLY_CHALLENGES)
-    now = datetime.now(KYIV_TZ)
-    week = now.strftime("%Y-W%U")
-    _challenges[chat_id] = {"text": challenge, "week": week, "accepted": [], "done": [], "skip": []}
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Приймаю виклик!", callback_data="challenge_accept"),
-        InlineKeyboardButton("😅 Пропускаю", callback_data="challenge_skip"),
-    ]])
-    await update.message.reply_text(f"💪 {challenge}\n\nХто в грі?", reply_markup=kb)
-
-
-async def cmd_challengestats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Статистика поточного виклику тижня."""
-    chat_id = update.effective_chat.id
-    ch = _challenges.get(chat_id)
-
-    if not ch:
-        await update.message.reply_text(
-            "📭 Активного виклику немає.\n\nЗапусти новий: /challenge"
-        )
-        return
-
-    now  = datetime.now(KYIV_TZ)
-    week = now.strftime("%Y-W%U")
-    week_label = f"Тиждень {now.strftime('%d.%m')}"
-
-    accepted = ch.get("accepted", [])
-    done     = ch.get("done", [])
-    skip     = ch.get("skip", [])
-
-    lines = [
-        f"💪 Виклик тижня ({week_label})\n",
-        ch["text"].replace("Виклик тижня: ", "") + "\n",
-    ]
-
-    if done:
-        names = ", ".join(u["name"] for u in done)
-        lines.append(f"🏆 Виконали ({len(done)}): {names}")
-
-    accepted_not_done = [u for u in accepted if u["id"] not in [d["id"] for d in done]]
-    if accepted_not_done:
-        names = ", ".join(u["name"] for u in accepted_not_done)
-        lines.append(f"⏳ Прийняли, ще в процесі ({len(accepted_not_done)}): {names}")
-
-    if skip:
-        names = ", ".join(u["name"] for u in skip)
-        lines.append(f"😅 Пропустили ({len(skip)}): {names}")
-
-    if not accepted and not done and not skip:
-        lines.append("🦗 Ніхто ще не відреагував...")
-
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Приймаю!", callback_data="challenge_accept"),
-        InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
-    ]])
-    await update.message.reply_text("\n".join(lines), reply_markup=kb)
-
-async def sched_weekly_titles(context: ContextTypes.DEFAULT_TYPE):
-    """Щонеділі о 19:30 — роздача титулів."""
-    chat_id = context.job.data["chat_id"]
-    tags = storage.load_tags()
-    if not tags:
-        return
-    data = activity.get(chat_id, {})
-    users = list(tags.values())
-    if not users:
-        return
-
-    lines = ["🏅 Титули тижня роздано!\n"]
-
-    # Балакун — найбільше повідомлень
-    if data:
-        srt = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
-        if srt:
-            top_uid, top_u = srt[0]
-            mention = top_u["name"]
-            tag_data = tags.get(str(top_uid))
-            if tag_data:
-                mention = ("@" + tag_data["username"]) if tag_data.get("username") else tag_data["name"]
-            lines.append(f"🥇 Балакун тижня: {mention} (" + str(top_u["count"]) + " повід.)")
-
-        # Мовчун — найменше
-        active_only = [(uid, u) for uid, u in srt if u["count"] > 0]
-        if len(active_only) > 1:
-            bot_uid, bot_u = active_only[-1]
-            tag_data = tags.get(str(bot_uid))
-            if tag_data:
-                m2 = f"@{tag_data['username']}" if tag_data.get("username") else tag_data["name"]
-                lines.append("😴 Мовчун тижня: " + m2 + " (лише " + str(bot_u["count"]) + " повід.)")
-
-    # Рандомний почесний титул
-    if users:
-        lucky = random.choice(users)
-        title, desc = random.choice(WEEKLY_TITLES[2:])
-        mention = f"@{lucky['username']}" if lucky.get("username") else lucky["name"]
-        lines.append(f"{title}: {mention} — {desc}")
-
-    lines.append("\nВітаємо переможців! 🎉")
-    await context.bot.send_message(chat_id, "\n".join(lines))
-
-async def sched_hot_mic(context: ContextTypes.DEFAULT_TYPE):
-    """Середа о 19:00 — гарячий мікрофон."""
-    chat_id = context.job.data["chat_id"]
-    tags = storage.load_tags()
-    if not tags:
-        return
-    uid, user = random.choice(list(tags.items()))
-    mention = f"@{user['username']}" if user.get("username") else user["name"]
-    prompts = [
-        f"🎤 Гарячий мікрофон цього тижня у {mention}!\n\nРозкажи щось цікаве — факт, історія, думка, порада. Будь-що. Ми слухаємо 👂",
-        f"🎙 Слово надається {mention}!\n\nМожеш розповісти що завгодно — смішне, серйозне, кринжове. Головне щось розкажи 😄",
-        f"📢 {mention}, твій час блистати!\n\nКомпанія чекає — що маєш сказати цього тижня? 🌟",
-    ]
-    await context.bot.send_message(chat_id, random.choice(prompts))
-
-async def sched_morning_news(context: ContextTypes.DEFAULT_TYPE):
-    """Щоранку о 8:05 — смішна новина від ШІ після погоди."""
-    chat_id = context.job.data["chat_id"]
-    prompts = [
-        "Придумай одну абсурдну смішну новину про Братиславу в стилі сатиричного новинного сайту. Одне речення, максимум дві. Без вступу, одразу новина.",
-        "Напиши один заголовок абсурдної новини про Словаччину або Братиславу. Смішно, нереалістично, в стилі The Onion. Тільки заголовок.",
-        "Вигадай кумедну новину про погоду в Братиславі сьогодні. Абсурдна, смішна. Одне-два речення.",
-    ]
-    news = await ask_ai(random.choice(prompts))
-    await context.bot.send_message(chat_id, f"📰 Новина дня: {news}")
-
-
-async def cmd_confession(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Анонімне зізнання — надсилає в групу без імені."""
-    text = " ".join(context.args).strip() if context.args else ""
-    if not text:
-        await update.message.reply_text(
-            "🤫 Команда для анонімного зізнання.\n\n"
-            "Напиши: /confession [твій текст]\n"
-            "Бот надішле в групу без твого імені 😈"
-        )
-        return
-    chat_id = update.effective_chat.id
-    await context.bot.send_message(
-        chat_id,
-        f"🎭 Анонімне зізнання:\n\n_{he(text)}_",
-        parse_mode="HTML"
-    )
-    # Видаляємо оригінальну команду щоб ніхто не побачив хто написав
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
 async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     jq      = context.job_queue
     all_names = [str(chat_id), f"{chat_id}_weather", f"{chat_id}_friday",
                  f"{chat_id}_evening", f"{chat_id}_monday", f"{chat_id}_report",
-                 f"{chat_id}_challenge", f"{chat_id}_titles", f"{chat_id}_hotmic",
                  f"{chat_id}_news"]
     for name in all_names:
         for job in jq.get_jobs_by_name(name):
@@ -1106,21 +874,15 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     jq.run_daily(sched_friday,             time=time(10,0,tzinfo=KYIV_TZ),  days=(4,),            data={"chat_id":chat_id}, name=f"{chat_id}_friday")
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_monday,             time=time(10,0,tzinfo=KYIV_TZ),  days=(0,),            data={"chat_id":chat_id}, name=f"{chat_id}_monday")
-    jq.run_daily(sched_weekly_challenge,   time=time(10,30,tzinfo=KYIV_TZ), days=(0,),            data={"chat_id":chat_id}, name=f"{chat_id}_challenge")
-    jq.run_daily(sched_hot_mic,            time=time(19,0,tzinfo=KYIV_TZ),  days=(2,),            data={"chat_id":chat_id}, name=f"{chat_id}_hotmic")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
-    jq.run_daily(sched_weekly_titles,      time=time(19,30,tzinfo=KYIV_TZ), days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_titles")
 
     await update.message.reply_text(
         "✅ Автоматичні повідомлення увімкнено!\n\n"
         "🌤 08:00 — погода\n"
         "📰 08:05 — смішна новина дня\n"
         "📅 Пн 10:00 — нагадування + івент\n"
-        "💪 Пн 10:30 — виклик тижня\n"
         "🎉 Пт 10:00 — плани на вихідні\n"
-        "🎤 Ср 19:00 — гарячий мікрофон\n"
         "🌙 Щодня 21:00 — як пройшов день\n"
-        "🏅 Нд 19:30 — титули тижня\n"
         "📈 Нд 20:00 — тижневий звіт\n"
         "❓ Кожні ~5 год (7–22) — рандомне питання"
     )
@@ -1139,8 +901,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("📅 Активні івенти",       callback_data="menu_events")],
         [InlineKeyboardButton("📢 Тегнути всіх",         callback_data="menu_gather")],
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-        [InlineKeyboardButton("💪 Виклик тижня",         callback_data="menu_challenge"),
-         InlineKeyboardButton("📊 Статус виклику",       callback_data="menu_challengestats")],
         [InlineKeyboardButton("❓ Гостре питання",        callback_data="menu_question"),
          InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
         [InlineKeyboardButton("📊 Звіт активності",      callback_data="menu_report")],
@@ -1388,6 +1148,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_message))
+    app.add_handler(CommandHandler("confess", cmd_confess_setup))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
@@ -1412,13 +1174,67 @@ def main():
     app.add_handler(CommandHandler("profile",     cmd_profile))
     app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
     app.add_handler(CommandHandler("autostart",   cmd_autostart))
-    app.add_handler(CommandHandler("challenge",   cmd_challenge))
-    app.add_handler(CommandHandler("challengestats", cmd_challengestats))
-    app.add_handler(CommandHandler("confession",  cmd_confession))
-    app.add_handler(CallbackQueryHandler(cb_challenge, pattern=r"^challenge_"))
 
     logger.info("Бот запущено!")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
+# ── Анонімні зізнання через особисте повідомлення боту ───────────────────────
+# Зберігаємо chat_id групи для кожного user_id хто написав боту в ЛС
+_confession_pending: dict = {}  # user_id -> chat_id групи
+
+async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє особисті повідомлення — для анонімних зізнань."""
+    user    = update.effective_user
+    chat    = update.effective_chat
+    text    = (update.message.text or "").strip()
+    low     = text.lower()
+
+    # /start в особистому чаті — пояснення
+    if low in ("/start", "/confession"):
+        # Зберігаємо що ця людина хоче надіслати зізнання
+        # Але потрібно знати в яку групу — питаємо
+        await update.message.reply_text(
+            "🎭 Привіт! Я приймаю анонімні зізнання.\n\n"
+            "Просто напиши своє зізнання — я надішлю його в групу анонімно 😈\n\n"
+            "Ніхто не дізнається що це ти!"
+        )
+        return
+
+    # Якщо є збережений chat_id групи — надсилаємо туди
+    group_chat_id = context.bot_data.get(f"confession_group_{user.id}")
+    if group_chat_id:
+        await context.bot.send_message(
+            group_chat_id,
+            f"🎭 Анонімне зізнання:\n\n{he(text)}"
+        )
+        await update.message.reply_text("✅ Надіслано анонімно! Ніхто не знає 🤫")
+    else:
+        await update.message.reply_text(
+            "😔 Не знаю в яку групу надсилати.\n\n"
+            "Спочатку напиши в групі команду /confess — і потім одразу пиши мені сюди своє зізнання."
+        )
+
+async def cmd_confess_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """В групі: /confess — запускає режим анонімного зізнання."""
+    user    = update.effective_user
+    chat_id = update.effective_chat.id
+    # Зберігаємо для цього user chat_id групи
+    context.bot_data[f"confession_group_{user.id}"] = chat_id
+    bot_info = await context.bot.get_me()
+    bot_username = bot_info.username
+    await update.message.reply_text(
+        f"🎭 Режим зізнання активовано!\n\n"
+        f"Напиши мені в особисті повідомлення — я надішлю анонімно:\n"
+        f"👉 @{bot_username}",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✍️ Написати зізнання", url=f"https://t.me/{bot_username}?start=confession")
+        ]])
+    )
+    # Видаляємо команду щоб не видно хто запустив
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
