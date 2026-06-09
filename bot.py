@@ -959,7 +959,7 @@ async def cmd_challengestats(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     lines = [
         f"💪 Виклик тижня ({week_label})\n",
-        f"_{ch['text'].replace('Виклик тижня: ', '')}_\n",
+        ch["text"].replace("Виклик тижня: ", "") + "\n",
     ]
 
     if done:
@@ -982,7 +982,7 @@ async def cmd_challengestats(update: Update, context: ContextTypes.DEFAULT_TYPE)
         InlineKeyboardButton("✅ Приймаю!", callback_data="challenge_accept"),
         InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
     ]])
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=kb)
+    await update.message.reply_text("\n".join(lines), reply_markup=kb)
 
 async def sched_weekly_titles(context: ContextTypes.DEFAULT_TYPE):
     """Щонеділі о 19:30 — роздача титулів."""
@@ -1233,7 +1233,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("✅ Приймаю!", callback_data="challenge_accept"),
             InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
         ]])
-        await q.message.reply_text("\n".join(lines2), parse_mode="Markdown", reply_markup=kb3)
+        await q.message.reply_text("\n".join(lines2), reply_markup=kb3)
 
     elif action == "report":
         await _menu_report(q, context)
@@ -1324,6 +1324,31 @@ async def _menu_autostart(q, context):
         "❓ Кожні ~5 год — питання"
     )
 
+
+async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Видаляє анкету і теги коли учасник виходить з групи."""
+    if not update.message.left_chat_member:
+        return
+    user = update.message.left_chat_member
+    if user.is_bot:
+        return
+
+    # Видалити анкету
+    profiles = storage.load_profiles()
+    if user.id in profiles:
+        del profiles[user.id]
+        storage.save_profiles(profiles)
+
+    # Видалити з тегів
+    tags = storage.load_tags()
+    if str(user.id) in tags:
+        del tags[str(user.id)]
+        storage.save_tags(tags)
+
+    await update.message.reply_text(
+        f"👋 {user.first_name} покинув групу. Видалено з анкет і списку учасників."
+    )
+
 def main():
     import os
     TOKEN = os.environ.get("BOT_TOKEN")
@@ -1335,6 +1360,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
+    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
