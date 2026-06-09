@@ -512,8 +512,10 @@ def event_text(ev):
         lines.append(f"📝 *{ev['custom_title']}*\n_{etype}_")
     else:
         lines.append(etype)
-    lines.append(f"\n{day_str}\n")
-    lines.append(f"✅ Йдуть ({len(yes_names)}): {', '.join(yes_names) if yes_names else 'поки ніхто'}")
+    lines.append(f"\n{day_str}")
+    if ev.get("description"):
+        lines.append(f"\n💬 {ev['description']}")
+    lines.append(f"\n✅ Йдуть ({len(yes_names)}): {', '.join(yes_names) if yes_names else 'поки ніхто'}")
     if no_names:
         lines.append(f"❌ Не йдуть: {', '.join(no_names)}")
     return "\n".join(lines)
@@ -563,7 +565,32 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     key     = f"ev_{user.id}_{chat_id}"
     pending = context.bot_data.get(key)
-    if not pending or pending.get("type") != "custom":
+    if not pending:
+        return
+
+    # Очікуємо опис івенту
+    if pending.get("awaiting") == "description":
+        pending.pop("awaiting")
+        pending["description"] = update.message.text
+        etype = pending["type"]
+        day   = pending["day"]
+        ev = {
+            "id":           next_event_id(),
+            "type":         etype,
+            "custom_title": pending.get("custom_title"),
+            "day":          day,
+            "description":  pending.get("description"),
+            "author":       pending.get("author", user.first_name),
+            "author_id":    pending.get("author_id", user.id),
+            "votes_named":  {},
+            "msg_id":       None,
+        }
+        context.bot_data.pop(key, None)
+        await _publish_event(context.bot, chat_id, ev)
+        return
+
+    # Очікуємо назву кастомного івенту
+    if pending.get("type") != "custom":
         return
     pending["custom_title"] = update.message.text
     day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {DAYS[i]}", callback_data=f"eday_custom_{i}")] for i in range(7)]
@@ -584,36 +611,67 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = context.bot_data.pop(key, {})
     chat_id = q.message.chat_id
 
-    ev = {
-        "id":           next_event_id(),
+    # Зберігаємо чернетку і просимо опис
+    context.bot_data[key] = {
         "type":         etype,
         "custom_title": pending.get("custom_title"),
         "day":          day,
         "author":       q.from_user.first_name,
         "author_id":    q.from_user.id,
-        "votes_named":  {},
-        "msg_id":       None,
+        "awaiting":     "description",
     }
+
+    await q.edit_message_text(
+        f"✏️ Додай опис до івенту — де зустрічаємось, деталі, що брати тощо.\n\n"
+        f"Або натисни кнопку щоб пропустити.",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("➡️ Пропустити", callback_data=f"ev_nodesc_{etype}_{day}"),
+            InlineKeyboardButton("❌ Скасувати",  callback_data="ev_cancel"),
+        ]])
+    )
+
+
+async def _publish_event(bot, chat_id, ev):
+    """Публікує картку івенту і закріплює."""
     if chat_id not in _events:
         _events[chat_id] = []
     _events[chat_id].append(ev)
+    sent = await bot.send_message(chat_id, event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+    ev["msg_id"] = sent.message_id
+    storage.save_events(_events)
+    try:
+        await bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
+    except Exception as e:
+        logger.warning(f"Pin failed: {e}")
 
-    # Видаляємо меню вибору
+
+async def cb_ev_nodesc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пропустити опис — публікувати без нього."""
+    q       = update.callback_query
+    await q.answer()
+    parts   = q.data.split("_")   # ev_nodesc_boardgames_3
+    etype   = parts[2]
+    day     = int(parts[3])
+    chat_id = q.message.chat_id
+    key     = f"ev_{q.from_user.id}_{chat_id}"
+    pending = context.bot_data.pop(key, {})
+
+    ev = {
+        "id":           next_event_id(),
+        "type":         etype,
+        "custom_title": pending.get("custom_title"),
+        "day":          day,
+        "description":  None,
+        "author":       pending.get("author", q.from_user.first_name),
+        "author_id":    pending.get("author_id", q.from_user.id),
+        "votes_named":  {},
+        "msg_id":       None,
+    }
     try:
         await q.delete_message()
     except Exception:
         pass
-
-    # Відправляємо картку
-    sent = await context.bot.send_message(chat_id, event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
-    ev["msg_id"] = sent.message_id
-    storage.save_events(_events)
-
-    # Закріплюємо
-    try:
-        await context.bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
-    except Exception as e:
-        logger.warning(f"Pin failed: {e}")
+    await _publish_event(q.bot, chat_id, ev)
 
 async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1172,6 +1230,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
     app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
+    app.add_handler(CallbackQueryHandler(cb_ev_nodesc, pattern=r"^ev_nodesc_"))
     app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
     app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no)_\d+$"))
 
