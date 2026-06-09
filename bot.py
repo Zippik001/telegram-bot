@@ -1136,50 +1136,8 @@ async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👋 {user.first_name} покинув групу. Видалено з анкет і списку учасників."
     )
 
-def main():
-    import os
-    TOKEN = os.environ.get("BOT_TOKEN")
-    if not TOKEN:
-        raise ValueError("BOT_TOKEN не встановлено!")
 
-    app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
-    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_message))
-    app.add_handler(CommandHandler("confess", cmd_confess_setup))
-
-    app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
-    app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
-    app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
-    app.add_handler(CallbackQueryHandler(cb_ev_nodesc, pattern=r"^ev_nodesc_"))
-    app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
-    app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no)_\d+$"))
-
-    app.add_handler(CommandHandler("start",       cmd_start))
-    app.add_handler(CommandHandler("help",        cmd_start))
-    app.add_handler(CommandHandler("event",       cmd_event))
-    app.add_handler(CommandHandler("events",      cmd_events_list))
-    app.add_handler(CommandHandler("clearevents", cmd_clear_events))
-    app.add_handler(CommandHandler("weather",     cmd_weather))
-    app.add_handler(CommandHandler("question",    cmd_question))
-    app.add_handler(CommandHandler("topic",       cmd_topic))
-    app.add_handler(CommandHandler("report",      cmd_report))
-    app.add_handler(CommandHandler("resetstats",  cmd_reset))
-    app.add_handler(CommandHandler("gather",      cmd_gather))
-    app.add_handler(CommandHandler("tags",        cmd_tags_list))
-    app.add_handler(CommandHandler("profile",     cmd_profile))
-    app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
-    app.add_handler(CommandHandler("autostart",   cmd_autostart))
-
-    logger.info("Бот запущено!")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
 
 # ── Анонімні зізнання через особисте повідомлення боту ───────────────────────
 # Зберігаємо chat_id групи для кожного user_id хто написав боту в ЛС
@@ -1238,3 +1196,49 @@ async def cmd_confess_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.delete()
     except Exception:
         pass
+
+
+def main():
+    import os
+    TOKEN = os.environ.get("BOT_TOKEN")
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN не встановлено!")
+
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
+    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT, handle_private_message))
+    app.add_handler(CommandHandler("confess", cmd_confess_setup))
+
+    app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
+    app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
+    app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
+    app.add_handler(CallbackQueryHandler(cb_ev_nodesc, pattern=r"^ev_nodesc_"))
+    app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no)_\d+$"))
+
+    app.add_handler(CommandHandler("start",       cmd_start))
+    app.add_handler(CommandHandler("help",        cmd_start))
+    app.add_handler(CommandHandler("event",       cmd_event))
+    app.add_handler(CommandHandler("events",      cmd_events_list))
+    app.add_handler(CommandHandler("clearevents", cmd_clear_events))
+    app.add_handler(CommandHandler("weather",     cmd_weather))
+    app.add_handler(CommandHandler("question",    cmd_question))
+    app.add_handler(CommandHandler("topic",       cmd_topic))
+    app.add_handler(CommandHandler("report",      cmd_report))
+    app.add_handler(CommandHandler("resetstats",  cmd_reset))
+    app.add_handler(CommandHandler("gather",      cmd_gather))
+    app.add_handler(CommandHandler("tags",        cmd_tags_list))
+    app.add_handler(CommandHandler("profile",     cmd_profile))
+    app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
+    app.add_handler(CommandHandler("autostart",   cmd_autostart))
+
+    logger.info("Бот запущено!")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
