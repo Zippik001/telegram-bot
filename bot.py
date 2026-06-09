@@ -291,7 +291,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("📅 Активні івенти",      callback_data="menu_events")],
             [InlineKeyboardButton("📢 Тегнути всіх",        callback_data="menu_gather")],
             [InlineKeyboardButton("🌤 Погода",              callback_data="menu_weather")],
-            [InlineKeyboardButton("💪 Виклик тижня",        callback_data="menu_challenge")],
+            [InlineKeyboardButton("💪 Виклик тижня",        callback_data="menu_challenge"),
+             InlineKeyboardButton("📊 Статус",              callback_data="menu_challengestats")],
             [InlineKeyboardButton("❓ Гостре питання",       callback_data="menu_question"),
              InlineKeyboardButton("💬 Тема",                callback_data="menu_topic")],
             [InlineKeyboardButton("📊 Звіт активності",     callback_data="menu_report")],
@@ -878,6 +879,9 @@ async def sched_weekly_challenge(context: ContextTypes.DEFAULT_TYPE):
     """Щопонеділка о 10:30 — виклик тижня."""
     chat_id = context.job.data["chat_id"]
     challenge = random.choice(WEEKLY_CHALLENGES)
+    now = datetime.now(KYIV_TZ)
+    week = now.strftime("%Y-W%U")
+    _challenges[chat_id] = {"text": challenge, "week": week, "accepted": [], "done": [], "skip": []}
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Приймаю виклик!", callback_data="challenge_accept"),
         InlineKeyboardButton("😅 Пропускаю", callback_data="challenge_skip"),
@@ -889,22 +893,96 @@ async def sched_weekly_challenge(context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def cb_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
+    q       = update.callback_query
     await q.answer()
-    user = q.from_user.first_name
+    user    = q.from_user
+    chat_id = q.message.chat_id
+    ch      = _challenges.get(chat_id)
+
     if q.data == "challenge_accept":
-        await q.message.reply_text(f"💪 {user} прийняв виклик! Чекаємо звіту в кінці тижня 😈")
-    else:
-        await q.message.reply_text(f"😅 {user} пропускає цього тижня. Буває!")
+        if ch and user.id not in [u["id"] for u in ch["accepted"]]:
+            ch["accepted"].append({"id": user.id, "name": user.first_name})
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
+        ]])
+        await q.message.reply_text(
+            f"💪 {user.first_name} прийняв виклик! Чекаємо звіту 😈\n\nКоли виконаєш — натисни кнопку:",
+            reply_markup=kb
+        )
+    elif q.data == "challenge_skip":
+        if ch and user.id not in [u["id"] for u in ch.get("skip", [])]:
+            if "skip" not in ch:
+                ch["skip"] = []
+            ch["skip"].append({"id": user.id, "name": user.first_name})
+        await q.message.reply_text(f"😅 {user.first_name} пропускає цього тижня. Буває!")
+    elif q.data == "challenge_done":
+        if ch and user.id not in [u["id"] for u in ch.get("done", [])]:
+            if "done" not in ch:
+                ch["done"] = []
+            ch["done"].append({"id": user.id, "name": user.first_name})
+        await q.message.reply_text(
+            f"🏆 {user.first_name} виконав виклик! Легенда тижня 🎉\n\nРозкажи як — напиши в чат!"
+        )
 
 async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ручний виклик тижня."""
+    chat_id = update.effective_chat.id
     challenge = random.choice(WEEKLY_CHALLENGES)
+    now = datetime.now(KYIV_TZ)
+    week = now.strftime("%Y-W%U")
+    _challenges[chat_id] = {"text": challenge, "week": week, "accepted": [], "done": [], "skip": []}
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Приймаю виклик!", callback_data="challenge_accept"),
         InlineKeyboardButton("😅 Пропускаю", callback_data="challenge_skip"),
     ]])
     await update.message.reply_text(f"💪 {challenge}\n\nХто в грі?", reply_markup=kb)
+
+
+async def cmd_challengestats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Статистика поточного виклику тижня."""
+    chat_id = update.effective_chat.id
+    ch = _challenges.get(chat_id)
+
+    if not ch:
+        await update.message.reply_text(
+            "📭 Активного виклику немає.\n\nЗапусти новий: /challenge"
+        )
+        return
+
+    now  = datetime.now(KYIV_TZ)
+    week = now.strftime("%Y-W%U")
+    week_label = f"Тиждень {now.strftime('%d.%m')}"
+
+    accepted = ch.get("accepted", [])
+    done     = ch.get("done", [])
+    skip     = ch.get("skip", [])
+
+    lines = [
+        f"💪 Виклик тижня ({week_label})\n",
+        f"_{ch['text'].replace('Виклик тижня: ', '')}_\n",
+    ]
+
+    if done:
+        names = ", ".join(u["name"] for u in done)
+        lines.append(f"🏆 Виконали ({len(done)}): {names}")
+
+    accepted_not_done = [u for u in accepted if u["id"] not in [d["id"] for d in done]]
+    if accepted_not_done:
+        names = ", ".join(u["name"] for u in accepted_not_done)
+        lines.append(f"⏳ Прийняли, ще в процесі ({len(accepted_not_done)}): {names}")
+
+    if skip:
+        names = ", ".join(u["name"] for u in skip)
+        lines.append(f"😅 Пропустили ({len(skip)}): {names}")
+
+    if not accepted and not done and not skip:
+        lines.append("🦗 Ніхто ще не відреагував...")
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Приймаю!", callback_data="challenge_accept"),
+        InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
+    ]])
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=kb)
 
 async def sched_weekly_titles(context: ContextTypes.DEFAULT_TYPE):
     """Щонеділі о 19:30 — роздача титулів."""
@@ -1047,7 +1125,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("📅 Активні івенти",       callback_data="menu_events")],
         [InlineKeyboardButton("📢 Тегнути всіх",         callback_data="menu_gather")],
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-        [InlineKeyboardButton("💪 Виклик тижня",         callback_data="menu_challenge")],
+        [InlineKeyboardButton("💪 Виклик тижня",         callback_data="menu_challenge"),
+         InlineKeyboardButton("📊 Статус виклику",       callback_data="menu_challengestats")],
         [InlineKeyboardButton("❓ Гостре питання",        callback_data="menu_question"),
          InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
         [InlineKeyboardButton("📊 Звіт активності",      callback_data="menu_report")],
@@ -1118,12 +1197,43 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(random.choice(DISCUSSION_TOPICS), parse_mode="Markdown")
 
     elif action == "challenge":
+        chat_id2 = q.message.chat_id
         challenge = random.choice(WEEKLY_CHALLENGES)
+        now2 = datetime.now(KYIV_TZ)
+        week2 = now2.strftime("%Y-W%U")
+        _challenges[chat_id2] = {"text": challenge, "week": week2, "accepted": [], "done": [], "skip": []}
         kb2 = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Приймаю виклик!", callback_data="challenge_accept"),
             InlineKeyboardButton("😅 Пропускаю", callback_data="challenge_skip"),
         ]])
         await q.message.reply_text(f"💪 {challenge}\n\nХто в грі?", reply_markup=kb2)
+
+    elif action == "challengestats":
+        chat_id2 = q.message.chat_id
+        ch2 = _challenges.get(chat_id2)
+        if not ch2:
+            await q.message.reply_text("📭 Активного виклику немає.\n\nЗапусти новий через кнопку Виклик тижня!")
+            return
+        now2 = datetime.now(KYIV_TZ)
+        week_label2 = f"Тиждень {now2.strftime('%d.%m')}"
+        accepted2 = ch2.get("accepted", [])
+        done2     = ch2.get("done", [])
+        skip2     = ch2.get("skip", [])
+        lines2 = [f"💪 Виклик тижня ({week_label2})\n", f"_{ch2['text'].replace('Виклик тижня: ', '')}_\n"]
+        if done2:
+            lines2.append(f"🏆 Виконали: {', '.join(u['name'] for u in done2)}")
+        acc_nd = [u for u in accepted2 if u["id"] not in [d["id"] for d in done2]]
+        if acc_nd:
+            lines2.append(f"⏳ В процесі: {', '.join(u['name'] for u in acc_nd)}")
+        if skip2:
+            lines2.append(f"😅 Пропустили: {', '.join(u['name'] for u in skip2)}")
+        if not accepted2 and not done2 and not skip2:
+            lines2.append("🦗 Ніхто ще не відреагував...")
+        kb3 = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Приймаю!", callback_data="challenge_accept"),
+            InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
+        ]])
+        await q.message.reply_text("\n".join(lines2), parse_mode="Markdown", reply_markup=kb3)
 
     elif action == "report":
         await _menu_report(q, context)
@@ -1250,6 +1360,7 @@ def main():
     app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
     app.add_handler(CommandHandler("autostart",   cmd_autostart))
     app.add_handler(CommandHandler("challenge",   cmd_challenge))
+    app.add_handler(CommandHandler("challengestats", cmd_challengestats))
     app.add_handler(CommandHandler("confession",  cmd_confession))
     app.add_handler(CallbackQueryHandler(cb_challenge, pattern=r"^challenge_"))
 
