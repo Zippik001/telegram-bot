@@ -283,9 +283,9 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Виклик меню через "Пєтя" (регістр не важливий)
     if low.strip() in ("пєтя", "петя", "petya", "пєтя!", "петя!", "пєтя?", "петя?"):
         petya_texts = [
-            f"🤖✨ Петро Інтерактивний матеріалізувався!\n\nМене покликали — а значить комусь стало нудно 😏\n\nЩоб додати інфо до анкети — напиши *про себе* і розкажи що хочеш.\nЩоб запитати мене щось — почни з *Пєтя,* і я відповім 🫡",
-            f"🤖 О, мене покликали! Або хтось скучив або щось трапилось 😄\n\nАнкета: напиши *про себе* і далі свій текст.\nПитання до мене: *Пєтя, [питання]* — і я не відмовчусь 🎤",
-            f"🫡 Петро тут, слухаю і повністю в темі!\n\nЗаповни анкету: *про себе* + текст\nПитай мене: *Пєтя,* + запит — дам відповідь яка тебе здивує 🤌",
+            f"🤖✨ Петро Інтерактивний матеріалізувався!\n\nМене покликали — а значить комусь стало нудно 😏\n\nЩоб заповнити анкету — напиши про себе і далі свій текст\nЩоб запитати мене щось — почни з Пєтя, і я відповім 🫡",
+            f"🤖 О, мене покликали! Або хтось скучив або щось трапилось 😄\n\nАнкета: напиши про себе і далі свій текст\nПитання до мене: Пєтя, [питання] — і я не відмовчусь 🎤",
+            f"🫡 Петро тут, слухаю і повністю в темі!\n\nЗаповни анкету: про себе + текст\nПитай мене: Пєтя, + запит — дам відповідь яка тебе здивує 🤌",
         ]
         import random as _r
         kb = InlineKeyboardMarkup([
@@ -472,24 +472,34 @@ async def cmd_tags_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tags = storage.load_tags()
+    tags    = storage.load_tags()
+    chat_id = update.effective_chat.id
     if not tags:
         await update.message.reply_text("😔 Список порожній. Бот запам'ятовує людей коли вони пишуть у групі.")
         return
 
-    # Розділяємо: з username — @mention, без — просто ім'я
     with_username = []
     without_username = []
     for uid, u in tags.items():
+        # Перевіряємо чи ще в групі
+        try:
+            member = await context.bot.get_chat_member(chat_id, int(uid))
+            if member.status in ("left", "kicked", "banned"):
+                continue
+        except Exception:
+            continue
         if u.get("username"):
             with_username.append(f"@{u['username']}")
         else:
             without_username.append(u["name"])
 
+    if not with_username and not without_username:
+        await update.message.reply_text("😔 Немає активних учасників для тегу.")
+        return
+
     custom_text = " ".join(context.args) if context.args else "Збір! 👋"
     all_mentions = with_username + without_username
     text = f"📢 {custom_text}\n\n" + " ".join(all_mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
-    # Без parse_mode — щоб нічого не ламалось
     sent = await update.message.reply_text(text)
 
     async def delete_it(ctx):
@@ -612,13 +622,13 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     etype   = parts[1]
     day     = int(parts[2])
     key     = f"ev_{q.from_user.id}_{q.message.chat_id}"
-    pending = context.bot_data.pop(key, {})
+    old     = context.bot_data.get(key, {})
     chat_id = q.message.chat_id
 
     # Зберігаємо чернетку і просимо опис
     context.bot_data[key] = {
         "type":         etype,
-        "custom_title": pending.get("custom_title"),
+        "custom_title": old.get("custom_title"),
         "day":          day,
         "author":       q.from_user.first_name,
         "author_id":    q.from_user.id,
@@ -666,13 +676,13 @@ async def cb_ev_nodesc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "custom_title": pending.get("custom_title"),
         "day":          day,
         "description":  None,
-        "author":       pending.get("author", q.from_user.first_name),
-        "author_id":    pending.get("author_id", q.from_user.id),
+        "author":       pending.get("author") or q.from_user.first_name,
+        "author_id":    pending.get("author_id") or q.from_user.id,
         "votes_named":  {},
         "msg_id":       None,
     }
     try:
-        await q.delete_message()
+        await q.edit_message_text("⏳ Публікую івент...")
     except Exception:
         pass
     await _publish_event(q.bot, chat_id, ev)
@@ -1120,7 +1130,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖✨ Петро Інтерактивний до ваших послуг!\n\n"
         "Я тут щоб ваша компанія не розпадалась від мовчанки 😄\n\n"
         "Щоб заповнити анкету — напиши повідомлення:\n"
-        "про себе Привіт! Мене звати Іван, 27 років 🙂"
+        "про себе  і далі розкажи про себе 🙂\n\n"
+        "Наприклад: про себе Привіт! Я Петро, 28 років, люблю настілки і каву ☕"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Анкети учасників",     callback_data="menu_profiles")],
@@ -1262,13 +1273,19 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _menu_profiles(q, context):
     profiles = storage.load_profiles()
-    tags     = storage.load_tags()  # тільки ті хто зараз в групі
     if not profiles:
-        await q.message.reply_text("📭 Ще ніхто не заповнив анкету.\n\nНапиши: про себе Привіт, мене звати...")
+        await q.message.reply_text("📭 Ще ніхто не заповнив анкету.\n\nНапиши: про себе і розкажи про себе")
         return
-    # Показуємо тільки тих хто є в тегах (тобто в групі)
-    active_uids = {int(uid) for uid in tags.keys()}
-    filtered = {uid: p for uid, p in profiles.items() if uid in active_uids}
+    chat_id = q.message.chat_id
+    # Перевіряємо через Telegram API хто зараз в групі
+    filtered = {}
+    for uid, p in profiles.items():
+        try:
+            member = await context.bot.get_chat_member(chat_id, uid)
+            if member.status not in ("left", "kicked", "banned"):
+                filtered[uid] = p
+        except Exception:
+            pass  # Не знайдено — пропускаємо
     if not filtered:
         await q.message.reply_text("📭 Ніхто з поточних учасників ще не заповнив анкету.")
         return
