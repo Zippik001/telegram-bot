@@ -103,6 +103,15 @@ DISCUSSION_TOPICS = [
     "🧲 *Тема:* Какая черта характера притягивает вас в людях как магнит — и почему это почти всегда плохо заканчивается?",
 ]
 
+# ── Объединённый список вопросов и тем ───────────────────────
+# Users can add their own via "Добавить свой вопрос/тему"
+_custom_qt: list[str] = []  # runtime list, resets on restart
+
+def all_qt_items() -> list[str]:
+    """Return built-in questions+topics merged with user-submitted ones."""
+    base = [f"❓ {q}" for q in RANDOM_QUESTIONS] + DISCUSSION_TOPICS
+    return base + _custom_qt
+
 WEEKLY_CHALLENGES = [
     "💪 Вызов недели: познакомиться с кем-то новым в группе!",
     "💪 Вызов недели: предложить идею для следующей встречи!",
@@ -384,11 +393,11 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
              InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
             [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-            [InlineKeyboardButton("❓ Острый вопрос",         callback_data="menu_question"),
-             InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
+            [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
             [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
         ])
-        await update.message.reply_text(_r.choice(petya_texts), parse_mode="Markdown", reply_markup=kb)
+        sent = await update.message.reply_text(_r.choice(petya_texts), parse_mode="Markdown", reply_markup=kb)
+        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
 
     # Анонимное сообщение
     if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
@@ -405,6 +414,17 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id,
                 "🎭 Анонимное сообщение:\n\n" + anon_text
             )
+        return
+
+    # Пользователь добавляет свой вопрос/тему
+    qt_key = f"qt_add_{user.id}_{chat_id}"
+    if context.bot_data.pop(qt_key, None):
+        _custom_qt.append(text)
+        sent = await update.message.reply_text(
+            f"✅ Добавлено в список!\n\n_{he(text)}_\n\nПоявится при следующем случайном выборе 🎲",
+            parse_mode="Markdown"
+        )
+        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
         return
 
     # Активность
@@ -462,6 +482,15 @@ async def ask_ai(question: str) -> str:
     except Exception as e:
         logger.error(f"Groq exception: {e}")
         return "😔 Не удалось получить ответ от ИИ."
+
+
+async def _auto_delete(bot, chat_id: int, message_id: int, delay: int = 120):
+    """Schedule deletion of a message after `delay` seconds."""
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
 
 # ── Приветствие новых участников ──────────────────────────────────────────────────
 
@@ -1177,10 +1206,29 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔄 Статистика сброшена!")
 
 async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"❓ {random.choice(RANDOM_QUESTIONS)}")
+    """Legacy command — redirect to combined handler."""
+    item = random.choice(all_qt_items())
+    sent = await update.message.reply_text(item, parse_mode="Markdown")
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, sent.message_id, 120))
 
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(random.choice(DISCUSSION_TOPICS), parse_mode="Markdown")
+    """Legacy command — redirect to combined handler."""
+    item = random.choice(all_qt_items())
+    sent = await update.message.reply_text(item, parse_mode="Markdown")
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, sent.message_id, 120))
+
+async def _send_qt_menu(send_fn, chat_id: int, bot):
+    """Show question/topic sub-menu."""
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 Случайный вопрос/тема",  callback_data="qt_random")],
+        [InlineKeyboardButton("✏️ Добавить свой вопрос",   callback_data="qt_add")],
+    ])
+    sent = await send_fn(
+        "❓ *Вопрос / Тема*\n\nВыбери действие:",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    asyncio.create_task(_auto_delete(bot, chat_id, sent.message_id, 120))
 
 # ── Автоматические задачи ──────────────────────
 
@@ -1189,7 +1237,7 @@ async def sched_random(context: ContextTypes.DEFAULT_TYPE):
     if now.hour < 7 or now.hour >= 22:
         return
     chat_id = context.job.data["chat_id"]
-    text = f"❓ {random.choice(RANDOM_QUESTIONS)}" if random.random() < 0.5 else random.choice(DISCUSSION_TOPICS)
+    text = random.choice(all_qt_items())
     await context.bot.send_message(chat_id, text, parse_mode="Markdown")
 
 async def sched_howwasday(context: ContextTypes.DEFAULT_TYPE):
@@ -1280,11 +1328,32 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
          InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-        [InlineKeyboardButton("❓ Острый вопрос",         callback_data="menu_question"),
-         InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
+        [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
         [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
     ])
-    await update.message.reply_text(text, reply_markup=keyboard)
+    sent = await update.message.reply_text(text, reply_markup=keyboard)
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, sent.message_id, 120))
+
+
+async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    chat_id = q.message.chat_id
+    action = q.data  # qt_random | qt_add
+
+    if action == "qt_random":
+        item = random.choice(all_qt_items())
+        sent = await q.message.reply_text(item, parse_mode="Markdown")
+        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
+
+    elif action == "qt_add":
+        key = f"qt_add_{q.from_user.id}_{chat_id}"
+        context.bot_data[key] = True
+        sent = await q.message.reply_text(
+            "✏️ Напиши свой вопрос или тему следующим сообщением.\n\n"
+            "Он будет добавлен в общий список и появится при следующем случайном выборе 🎲",
+        )
+        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
 
 async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
@@ -1335,11 +1404,8 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await msg.edit_text("😔 Не удалось получить погоду.")
 
-    elif action == "question":
-        await q.message.reply_text(f"❓ {random.choice(RANDOM_QUESTIONS)}")
-
-    elif action == "topic":
-        await q.message.reply_text(random.choice(DISCUSSION_TOPICS), parse_mode="Markdown")
+    elif action == "qt":
+        await _send_qt_menu(q.message.reply_text, q.message.chat_id, context.bot)
 
     elif action == "report":
         await _menu_report(q, context)
@@ -1760,6 +1826,7 @@ def main():
     # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
     app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.CHAT_MEMBER))
 
+    app.add_handler(CallbackQueryHandler(cb_qt,           pattern=r"^qt_"))
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_etype,       pattern=r"^etype_"))
