@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 KYIV_TZ = pytz.timezone("Europe/Bratislava")  # UTC+1/+2 (Братислава)
 
 def he(text: str) -> str:
-    """Екранує HTML спецсимволи."""
     return str(text).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
 
 
@@ -33,86 +32,84 @@ def next_event_id():
     return _event_counter
 
 activity: dict = defaultdict(dict)
+_challenges: dict = {}
 
-# Мова чату: { chat_id: "uk" | "ru" }
+# Язык чата: { chat_id: "ru" }
 _lang: dict = {}
 
 def lang(chat_id) -> str:
-    return _lang.get(chat_id, "uk")
+    return _lang.get(chat_id, "ru")
 
 def t(chat_id, uk_text: str, ru_text: str) -> str:
-    """Повертає текст потрібною мовою."""
     return ru_text if lang(chat_id) == "ru" else uk_text
 
 
 RANDOM_QUESTIONS = [
-    "🍑 Якби твої органи могли писати скарги на тебе — який орган подав би найтовщу папку і за що саме?",
-    "🚿 Що ти робиш в душі з таким серйозним виразом обличчя, що якби хтось побачив — одразу б викликав лікаря?",
-    "😏 Яка твоя найкінжальніша фраза яку ти кажеш з посмішкою — а людина розуміє лише через годину?",
-    "🍷 Опиши свій тип людини трьома словами. Перше слово має бути «проблемний».",
-    "🔥 Яку річ ти робиш в ліжку про яку не розкажеш мамі? (їжа о 2 ночі теж рахується)",
-    "🤡 З якою твоєю рисою характеру ти вже змирився і навіть зробив її своєю фішкою?",
-    "👅 Яка твоя найбільш неприйнятна кулінарна комбінація яку ти їси і захищаєш як адвокат?",
-    "🛁 Якби твій душ транслювався в прямому ефірі — на якому моменті ти б вимкнув камеру?",
-    "💀 Яка твоя найтемніша думка о 3 ночі яку ти ніколи не напишеш у групі? (пиши тут, ми не розкажемо)",
-    "🐍 З ким з групи ти б точно вижив на безлюдному острові — і кого б перший з'їв?",
-    "🍺 Яка у тебе репутація на вечірках — і наскільки вона відповідає реальності?",
-    "😳 Якби твій телефон отримав право голосу і розповів компанії про твої пошукові запити — що б сказав?",
-    "🌶 Що тебе заводить в людях настільки що ти готовий це визнати тут анонімно?",
-    "🧠 Яка думка займає у твоїй голові 80% місця — і ти соромишся що це не щось важливе?",
-    "💘 Розкажи про свій найфантастичніший план зваблення який провалився настільки епічно що досі смішно?",
-    "🎪 Яка твоя прихована кінка про яку знає максимум одна людина і то випадково?",
-    "🍑 Якби твоє тіло могло виставляти оцінки твоїм рішенням — яка середня оцінка і за що найнижча?",
-    "🤫 Що ти робиш коли думаєш що за тобою ніхто не стежить? Тут можна зізнатись.",
-    "🎭 Яку роль ти граєш на людях — і ким ти є насправді о 2 ночі наодинці з собою?",
-    "🔞 Який у тебе найдивніший turn-on якого ти соромишся? Їжа, голоси, запахи — все рахується.",
-    "🧟 Якби твої ex могли написати один спільний відгук про тебе — що б там було?",
-    "💅 Яка твоя найбільша маніпуляція яку ти виправдовуєш словом «я просто чесний»?",
-    "🛌 Що ти робиш в ліжку годину перед сном замість того щоб спати — і не кажи що читаєш?",
-    "🍻 Яке речення ти вимовив п'яним і зранку знайшов у чернетках як «повідомлення яке краще не надсилати»?",
-    "😈 Яка твоя найпідступніша якість яку ти називаєш «стратегічним мисленням»?",
-    "🦷 Яка твоя гігієнічна звичка яку ти вважаєш необов'язковою — а лікарі б жахнулись?",
-    "🎯 Опиши своє любовне життя за допомогою назви фільму. Чим трагічніша назва — тим точніше.",
-    "🌚 О котрій годині твоя внутрішня дитина бере контроль і що вона тоді робить?",
-    "💔 Яка найдовша відмазка яку ти придумав щоб не йти на зустріч — і вона спрацювала?",
-    "🤢 Яку їжу ти їв прямо з каструлі стоячи над плитою і навіть не соромишся?",
-    "🎲 Якби доля вирішувала твоє особисте життя киданням кубика — що б змінилось?",
-    "🏆 Яке твоє найбільше досягнення якого немає в жодному резюме але ти ним гордишся як олімпійським медалем?",
-    "🐾 Якби твоя кішка або собака могли говорити — що б вони розповіли цій групі першим ділом?",
-    "👀 Яка твоя найбільш неадекватна ревнощева поведінка яку ти виправдовував словом «я просто турбуюсь»?",
-    "🌊 Що тебе збуджує так що ти готовий зізнатись? (інтелект, влада, запах борщу — всі варіанти валідні)",
+    "🍑 Если бы твои органы могли писать жалобы на тебя — какой орган подал бы самую толстую папку и за что именно?",
+    "🚿 Что ты делаешь в душе с таким серьёзным выражением лица, что если бы кто-то увидел — сразу бы вызвал врача?",
+    "😏 Какая твоя самая острая фраза, которую ты говоришь с улыбкой — а человек понимает только через час?",
+    "🍷 Опиши свой тип людей тремя словами. Первое слово должно быть «проблемный».",
+    "🔥 Что ты делаешь в кровати, о чём не расскажешь маме? (еда в 2 ночи тоже считается)",
+    "🤡 С какой своей чертой характера ты уже смирился и даже сделал её своей фишкой?",
+    "👅 Какое твоё самое странное кулинарное сочетание, которое ты ешь и защищаешь как адвокат?",
+    "🛁 Если бы твой душ транслировался в прямом эфире — на каком моменте ты бы выключил камеру?",
+    "💀 Какая твоя самая тёмная мысль в 3 ночи, которую ты никогда не напишешь в группе? (пиши тут, мы не расскажем)",
+    "🐍 С кем из группы ты точно выжил бы на необитаемом острове — и кого бы съел первым?",
+    "🍺 Какая у тебя репутация на вечеринках — и насколько она соответствует реальности?",
+    "😳 Если бы твой телефон получил право голоса и рассказал компании о твоих поисковых запросах — что бы он сказал?",
+    "🌶 Что тебя заводит в людях настолько, что ты готов это признать здесь анонимно?",
+    "🧠 Какая мысль занимает в твоей голове 80% места — и ты стыдишься, что это не что-то важное?",
+    "💘 Расскажи о своём самом фантастическом плане соблазнения, который провалился настолько эпично, что до сих пор смешно?",
+    "🎪 Какой у тебя скрытый интерес, о котором знает максимум один человек и то случайно?",
+    "🍑 Если бы твоё тело могло выставлять оценки твоим решениям — какая средняя оценка и за что самая низкая?",
+    "🤫 Что ты делаешь, когда думаешь, что за тобой никто не следит? Тут можно признаться.",
+    "🎭 Какую роль ты играешь на людях — и кем ты являешься на самом деле в 2 ночи наедине с собой?",
+    "🔞 Какой у тебя самый странный turn-on, которого ты стыдишься? Еда, голоса, запахи — всё считается.",
+    "🧟 Если бы твои бывшие могли написать один общий отзыв о тебе — что там было бы?",
+    "💅 Какая твоя самая большая манипуляция, которую ты оправдываешь словом «я просто честный»?",
+    "🛌 Что ты делаешь в кровати час перед сном вместо того чтобы спать — и не говори что читаешь?",
+    "🍻 Какое предложение ты произнёс пьяным и утром нашёл в черновиках как «сообщение лучше не отправлять»?",
+    "😈 Какое твоё самое коварное качество, которое ты называешь «стратегическим мышлением»?",
+    "🦷 Какая твоя гигиеническая привычка, которую ты считаешь необязательной — а врачи бы ужаснулись?",
+    "🎯 Опиши свою личную жизнь с помощью названия фильма. Чем трагичнее название — тем точнее.",
+    "🌚 В котором часу твой внутренний ребёнок берёт контроль и что он тогда делает?",
+    "💔 Какая самая длинная отмазка, которую ты придумал чтобы не идти на встречу — и она сработала?",
+    "🤢 Какую еду ты ел прямо из кастрюли стоя над плитой и даже не стыдишься?",
+    "🎲 Если бы судьба решала твою личную жизнь броском кубика — что бы изменилось?",
+    "🏆 Какое твоё самое большое достижение, которого нет ни в одном резюме, но ты им гордишься как олимпийской медалью?",
+    "🐾 Если бы твоя кошка или собака могли говорить — что бы они рассказали этой группе в первую очередь?",
+    "👀 Какое твоё самое неадекватное ревнивое поведение, которое ты оправдывал словом «я просто беспокоюсь»?",
+    "🌊 Что тебя возбуждает так, что ты готов признаться? (интеллект, власть, запах борща — все варианты валидны)",
 ]
 
 DISCUSSION_TOPICS = [
-    "🗣 *Тема:* Є місця в Братиславі де час ніби зупиняється. Де у вас таке місце?",
-    "🗣 *Тема:* Дорослі стосунки — чому з віком знайти справжніх друзів стає складніше?",
-    "🗣 *Тема:* Настільні ігри — це діагностика характеру чи просто гра?",
-    "🗣 *Тема:* Ідеальний вечір з компанією — що має бути обов'язково і чого не має бути?",
-    "🗣 *Тема:* Похід у гори — у кого вже є травма і хто готовий повторити?",
-    "🗣 *Тема:* Red flag або green flag — що одразу говорить вам все про людину?",
-    "🗣 *Тема:* Найкращий спосіб відпочити після важкого тижня — у кожного свій.",
-    "🗣 *Тема:* Яке місце в Братиславі треба показати гостю що приїхав вперше?",
-    "🔞 *Тема:* Перший поцілунок — романтично чи кринжово? Хто готовий розповісти?",
-    "😬 *Тема:* Найгірше побачення у вашому житті — деталі, подробиці, без цензури.",
-    "🍺 *Тема:* Є корпоратив або вечірка після якої ви соромились наступного дня — що сталось?",
-    "💔 *Тема:* Найдурніша причина через яку ви розходились або сварились — зізнайтесь.",
-    "🌶 *Тема:* Що у людях вас заводить — і ні, не обов'язково в романтичному сенсі?",
-    "🤐 *Тема:* Є думка яку ви ніколи не скажете вголос в цій компанії — що це?",
-    "😂 *Тема:* Найкринжовіший момент вашого підліткового віку — хто перший?",
-    "🛏 *Тема:* Ваші стосунки з сном — роман, трагедія чи холодна війна?",
-    "💸 *Тема:* На що ви витрачаєте гроші і потім соромитесь це визнавати?",
-    "🧲 *Тема:* Яка риса характеру притягує вас у людях як магніт — і чому це майже завжди погано закінчується?",
+    "🗣 *Тема:* Есть места в Братиславе, где время как будто останавливается. Где у вас такое место?",
+    "🗣 *Тема:* Взрослые отношения — почему с возрастом найти настоящих друзей становится сложнее?",
+    "🗣 *Тема:* Настольные игры — это диагностика характера или просто игра?",
+    "🗣 *Тема:* Идеальный вечер с компанией — что должно быть обязательно и чего не должно быть?",
+    "🗣 *Тема:* Поход в горы — у кого уже есть травма и кто готов повторить?",
+    "🗣 *Тема:* Red flag или green flag — что сразу говорит вам всё о человеке?",
+    "🗣 *Тема:* Лучший способ отдохнуть после тяжёлой недели — у каждого свой.",
+    "🗣 *Тема:* Какое место в Братиславе надо показать гостю, который приехал впервые?",
+    "🔞 *Тема:* Первый поцелуй — романтично или кринжово? Кто готов рассказать?",
+    "😬 *Тема:* Худшее свидание в вашей жизни — детали, подробности, без цензуры.",
+    "🍺 *Тема:* Есть корпоратив или вечеринка после которой вы стыдились на следующий день — что произошло?",
+    "💔 *Тема:* Самая глупая причина, по которой вы расходились или ссорились — признайтесь.",
+    "🌶 *Тема:* Что в людях вас заводит — и нет, не обязательно в романтическом смысле?",
+    "🤐 *Тема:* Есть мысль, которую вы никогда не скажете вслух в этой компании — что это?",
+    "😂 *Тема:* Самый кринжовый момент вашего подросткового возраста — кто первый?",
+    "🛏 *Тема:* Ваши отношения со сном — роман, трагедия или холодная война?",
+    "💸 *Тема:* На что вы тратите деньги и потом стыдитесь это признавать?",
+    "🧲 *Тема:* Какая черта характера притягивает вас в людях как магнит — и почему это почти всегда плохо заканчивается?",
 ]
 
-EVENT_TYPES_UK = {
-    "boardgames": "🎲 Настільні ігри",
-    "hike":       "🥾 Похід / прогулянка",
-    "cafe":       "☕ Кафе / бар",
-    "cinema":     "🎬 Кіно",
-    "quest":      "🎯 Квест / активність",
-    "online":     "💻 Онлайн-вечір",
-    "custom":     "✏️ Своя ідея",
-}
+WEEKLY_CHALLENGES = [
+    "💪 Вызов недели: познакомиться с кем-то новым в группе!",
+    "💪 Вызов недели: предложить идею для следующей встречи!",
+    "💪 Вызов недели: написать что-то позитивное в группу каждый день!",
+    "💪 Вызов недели: попробовать новое место в Братиславе и рассказать об этом!",
+]
+
 EVENT_TYPES_RU = {
     "boardgames": "🎲 Настольные игры",
     "hike":       "🥾 Поход / прогулка",
@@ -122,24 +119,19 @@ EVENT_TYPES_RU = {
     "online":     "💻 Онлайн-вечер",
     "custom":     "✏️ Своя идея",
 }
-def EVENT_TYPES(chat_id=None):
-    if chat_id and lang(chat_id) == "ru":
-        return EVENT_TYPES_RU
-    return EVENT_TYPES_UK
 
-DAYS_UK   = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
-DAYS_RU   = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+def EVENT_TYPES(chat_id=None):
+    return EVENT_TYPES_RU
+
+DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 DAY_EMOJI = ["📅","📅","📅","📅","🎉","🎉","😴"]
 
 def DAYS(chat_id=None):
-    if chat_id and lang(chat_id) == "ru":
-        return DAYS_RU
-    return DAYS_UK
+    return DAYS_RU
 
 # ── Погода ────────────────────────────────────
 
 async def fetch_weather_full():
-    """Погода на весь день — поточна + прогноз по годинах."""
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={WEATHER_LAT}&longitude={WEATHER_LON}"
@@ -157,7 +149,6 @@ async def fetch_weather_full():
         logger.error(f"Weather: {e}")
     return None
 
-# Залишаємо для сумісності
 async def fetch_weather():
     return await fetch_weather_full()
 
@@ -173,12 +164,11 @@ def wmo_emoji(c):
     return "🌡"
 
 def wmo_desc(c):
-    return {0:"Ясно",1:"Переважно ясно",2:"Мінлива хмарність",3:"Хмарно",
-            45:"Туман",51:"Мряка",61:"Дощ",63:"Помірний дощ",65:"Сильний дощ",
-            71:"Сніг",80:"Злива",95:"Гроза"}.get(c,"Змінна погода")
+    return {0:"Ясно",1:"Преимущественно ясно",2:"Переменная облачность",3:"Облачно",
+            45:"Туман",51:"Морось",61:"Дождь",63:"Умеренный дождь",65:"Сильный дождь",
+            71:"Снег",80:"Ливень",95:"Гроза"}.get(c,"Переменная погода")
 
 def weather_tip_full(slots):
-    """Загальна порада на день на основі всіх слотів."""
     codes = [s["code"] for s in slots]
     temps = [s["temp"] for s in slots]
     has_rain  = any(51<=c<=82 for c in codes)
@@ -189,25 +179,24 @@ def weather_tip_full(slots):
 
     funny = []
     if has_storm:
-        funny.append("Гроза? Залишайся вдома, стань людиною-диваном ⛈🛋")
+        funny.append("Гроза? Оставайся дома, стань человеком-диваном ⛈🛋")
     elif has_rain:
-        funny.append("Дощ іде — хороший привід не виходити і дивитись серіали 🌧🍿")
+        funny.append("Дождь идёт — хороший повод не выходить и смотреть сериалы 🌧🍿")
     elif has_snow:
-        funny.append("Сніжок! Чудово, якщо ти пінгвін 🐧❄️")
+        funny.append("Снежок! Отлично, если ты пингвин 🐧❄️")
     elif max_t > 28:
-        funny.append("Спека! Одягнися як сонячна батарея і плавь тротуари ☀️🥵")
+        funny.append("Жара! Одевайся как солнечная батарея и плавь тротуары ☀️🥵")
     elif min_t < 3:
-        funny.append("Холодно як у серці того хто не відповідає на повідомлення 🥶")
+        funny.append("Холодно как в сердце того, кто не отвечает на сообщения 🥶")
     elif max_t > 18:
-        funny.append("Погода — 10 з 10, навіть монітор соромно відкривати 🌞")
+        funny.append("Погода — 10 из 10, даже монитор стыдно открывать 🌞")
     else:
-        funny.append("Звичайна братиславська погода — непередбачувана як настрій в понеділок 😅")
+        funny.append("Обычная братиславская погода — непредсказуемая как настроение в понедельник 😅")
     return funny[0]
 
 def build_weather_full(data):
-    """Будує повідомлення з погодою по 5 часових слотах."""
-    hours_map = {8: "🌅 Ранок",  11: "☀️ Полудень",
-                 14: "🌤 День",  17: "🌇 Вечір", 20: "🌙 Ніч"}
+    hours_map = {8: "🌅 Утро",  11: "☀️ Полдень",
+                 14: "🌤 День",  17: "🌇 Вечер", 20: "🌙 Ночь"}
 
     hourly_times = data["hourly"]["time"]
     hourly_temps = data["hourly"]["temperature_2m"]
@@ -216,7 +205,6 @@ def build_weather_full(data):
 
     slots = []
     for target_h, label in hours_map.items():
-        # Знаходимо індекс потрібної години
         idx = next((i for i, t in enumerate(hourly_times) if f"T{target_h:02d}:00" in t), None)
         if idx is None:
             continue
@@ -233,27 +221,26 @@ def build_weather_full(data):
 
     now = datetime.now(pytz.timezone("Europe/Bratislava"))
     date_str = now.strftime("%d.%m.%Y")
-    weekdays = ["Понеділок","Вівторок","Середа","Четвер","П'ятниця","Субота","Неділя"]
+    weekdays = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"]
     weekday = weekdays[now.weekday()]
-    lines = [f"🌍 *Погода в Братиславі*\n📅 {weekday}, {date_str}\n"]
+    lines = [f"🌍 *Погода в Братиславе*\n📅 {weekday}, {date_str}\n"]
     for s in slots:
         lines.append(f"{s['label']}: {s['emoji']} {s['temp']}°C — {s['desc']}{s['prec_str']}")
 
-    tip = weather_tip_full(slots) if slots else "Гарного дня! ☀️"
+    tip = weather_tip_full(slots) if slots else "Хорошего дня! ☀️"
     lines.append(f"\n💡 _{tip}_")
     return "\n".join(lines)
 
-# Стара функція для сумісності
 def build_weather_text(data):
     return build_weather_full(data)
 
 async def cmd_weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("⏳ Отримую погоду...")
+    msg = await update.message.reply_text("⏳ Получаю погоду...")
     data = await fetch_weather_full()
     if data:
         await msg.edit_text(build_weather_full(data), parse_mode="Markdown")
     else:
-        await msg.edit_text("😔 Не вдалось отримати погоду.")
+        await msg.edit_text("😔 Не удалось получить погоду.")
 
 async def sched_weather(context: ContextTypes.DEFAULT_TYPE):
     data = await fetch_weather_full()
@@ -262,7 +249,17 @@ async def sched_weather(context: ContextTypes.DEFAULT_TYPE):
             context.job.data["chat_id"], build_weather_full(data), parse_mode="Markdown"
         )
 
-# ── Трекер — анкета + теги + активність ───────
+async def sched_morning_news(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data["chat_id"]
+    messages = [
+        "📰 *Новость дня:* Учёные выяснили, что кофе с утра — это не зависимость, а стратегия выживания ☕",
+        "📰 *Новость дня:* Исследование показало: люди которые отвечают на сообщения сразу — редкий вид 🦄",
+        "📰 *Новость дня:* Эксперты подтвердили: понедельник существует, и с этим ничего не поделать 📅",
+        "📰 *Новость дня:* Зафиксировано рекордное количество людей которые сказали «я уже иду» и не вышли 🚶",
+    ]
+    await context.bot.send_message(chat_id, random.choice(messages), parse_mode="Markdown")
+
+# ── Трекер — анкета + теги + активность ───────
 
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
@@ -270,33 +267,32 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or user.is_bot:
         return
 
-    # Завжди реєструємо користувача — незалежно від вмісту повідомлення
     storage.register_user(user)
 
     text = (update.message.text or "").strip()
     low  = text.lower()
 
-    # Анкета: "про себе ..."
-    if low.startswith("про себе"):
-        info = text[len("про себе"):].strip(" :—-\n")
+    # Анкета: "о себе ..."
+    if low.startswith("о себе") or low.startswith("про себе"):
+        prefix = "о себе" if low.startswith("о себе") else "про себе"
+        info = text[len(prefix):].strip(" :—-\n")
         if info:
             profiles = storage.load_profiles()
             profiles[user.id] = {"text": info, "username": user.username or "", "tg_name": user.first_name}
             storage.save_profiles(profiles)
             await update.message.reply_text(
-                f"✅ Збережено, {user.first_name}!\n\n{info}\n\nПереглянути: /profile"
+                f"✅ Сохранено, {user.first_name}!\n\n{info}\n\nПосмотреть: /profile"
             )
         else:
             await update.message.reply_text(
-                "📋 Напиши текст після «про себе», наприклад:\nпро себе Привіт! Мене звати Іван, 27 років 🙂"
+                "📋 Напиши текст после «о себе», например:\nо себе Привет! Меня зовут Иван, 27 лет 🙂"
             )
 
-    # ChatGPT: якщо повідомлення починається з "пєтя," або "@botname" + текст
-    petya_triggers = ("пєтя,", "петя,", "пєтя питання", "петя питання", "питання пєтя", "ai,", "шт,")
-    if any(low.startswith(t) for t in petya_triggers) or (low.startswith("пєтя ") and len(low) > 6):
-        # Витягуємо питання після тригера
+    # AI: если сообщение начинается с имени бота или триггеров
+    petya_triggers = ("пєтя,", "петя,", "пєтя питання", "петя питання", "петро,", "петро питання", "ai,", "шт,")
+    if any(low.startswith(t) for t in petya_triggers) or (low.startswith("пєтя ") and len(low) > 6) or (low.startswith("петя ") and len(low) > 5) or (low.startswith("петро ") and len(low) > 6):
         question = text
-        for t in ("пєтя,", "петя,", "пєтя ", "петя ", "ai, ", "шт, "):
+        for t in ("пєтя,", "петя,", "петро,", "пєтя ", "петя ", "петро ", "ai, ", "шт, "):
             if low.startswith(t):
                 question = text[len(t):].strip()
                 break
@@ -310,29 +306,29 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             activity[chat_id][user.id]["count"] += 1
             return
 
-    # Виклик меню через "Пєтя" (регістр не важливий)
-    if low.strip() in ("пєтя", "петя", "petya", "пєтя!", "петя!", "пєтя?", "петя?"):
+    # Вызов меню через имя бота
+    if low.strip() in ("пєтя", "петя", "petya", "пєтя!", "петя!", "пєтя?", "петя?",
+                        "петро", "петро!", "петро?", "петр"):
         petya_texts = [
-            f"🤖✨ Петро Інтерактивний матеріалізувався!\n\nМене покликали — а значить комусь стало нудно 😏\n\nЩоб заповнити анкету — напиши про себе і далі свій текст\nЩоб запитати мене щось — почни з Пєтя, і я відповім 🫡",
-            f"🤖 О, мене покликали! Або хтось скучив або щось трапилось 😄\n\nАнкета: напиши про себе і далі свій текст\nПитання до мене: Пєтя, [питання] — і я не відмовчусь 🎤",
-            f"🫡 Петро тут, слухаю і повністю в темі!\n\nЗаповни анкету: про себе + текст\nПитай мене: Пєтя, + запит — дам відповідь яка тебе здивує 🤌",
+            f"🤖✨ Пётр Интерактивный материализовался!\n\nМеня позвали — значит кому-то стало скучно 😏\n\nЧтобы заполнить анкету — напиши о себе и дальше свой текст\nЧтобы спросить меня что-то — начни с Петя, и я отвечу 🫡",
+            f"🤖 О, меня позвали! Или кто-то соскучился или что-то случилось 😄\n\nАнкета: напиши о себе и дальше свой текст\nВопрос мне: Петя, [вопрос] — и я не промолчу 🎤",
+            f"🫡 Пётр здесь, слушаю и полностью в теме!\n\nЗаполни анкету: о себе + текст\nСпрашивай меня: Петя, + запрос — дам ответ который тебя удивит 🤌",
         ]
         import random as _r
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Анкети учасників",    callback_data="menu_profiles")],
-            [InlineKeyboardButton("🎉 Запропонувати івент", callback_data="menu_event"),
-             InlineKeyboardButton("📅 Активні івенти",      callback_data="menu_events")],
-            [InlineKeyboardButton("📢 Тегнути всіх",        callback_data="menu_gather")],
-            [InlineKeyboardButton("🌤 Погода",              callback_data="menu_weather")],
-            [InlineKeyboardButton("❓ Гостре питання",       callback_data="menu_question"),
-             InlineKeyboardButton("💬 Тема",                callback_data="menu_topic")],
-            [InlineKeyboardButton("📊 Звіт активності",     callback_data="menu_report")],
+            [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
+            [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
+             InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
+            [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
+            [InlineKeyboardButton("❓ Острый вопрос",         callback_data="menu_question"),
+             InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
+            [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
         ])
         await update.message.reply_text(_r.choice(petya_texts), parse_mode="Markdown", reply_markup=kb)
 
-    # Анонімне повідомлення: починається з "анонім" (або "anonym")
-    if low.startswith("анонім ") or low.startswith("anonym "):
-        for prefix in ("анонім ", "anonym "):
+    # Анонимное сообщение
+    if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
+        for prefix in ("анонім ", "анон ", "anonym "):
             if low.startswith(prefix):
                 anon_text = text[len(prefix):].strip()
                 break
@@ -343,27 +339,26 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await context.bot.send_message(
                 chat_id,
-                "🎭 Анонімне повідомлення:\n\n" + anon_text
+                "🎭 Анонимное сообщение:\n\n" + anon_text
             )
         return
 
-    # Активність
+    # Активность
     if user.id not in activity[chat_id]:
         activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
     activity[chat_id][user.id]["name"]   = user.first_name
     activity[chat_id][user.id]["count"] += 1
 
-# ── ChatGPT (OpenAI) ──────────────────────────────────────────────────────────
+# ── ChatGPT / Groq ──────────────────────────────────────────────────────────
 
 async def ask_ai(question: str) -> str:
-    """Відправляє запит до Groq (безкоштовно, без карти)."""
     import os
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         return (
-            "😔 Groq API ключ не налаштовано.\n"
-            "Додай GROQ_API_KEY в Railway Variables.\n"
-            "Отримай безкоштовно: console.groq.com"
+            "😔 Groq API ключ не настроен.\n"
+            "Добавь GROQ_API_KEY в Railway Variables.\n"
+            "Получи бесплатно: console.groq.com"
         )
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -371,18 +366,18 @@ async def ask_ai(question: str) -> str:
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": (
-                "Ти — Петро Інтерактивний, неадекватний але добродушний асистент групи друзів у Братиславі. "
-                "Відповідай ВИКЛЮЧНО українською мовою — ніякої іншої. "
-                "Твій стиль: кринжовий гумор, пошлі але не вульгарні жарти, несподівані порівняння, "
-                "саркастичні поради, абсурдні аналогії. "
-                "Ти як той друг який завжди скаже щось недоречне але влучне. "
-                "Будь коротким — максимум 4-5 речень. "
-                "Якщо просять анекдот — розкажи пошлий але смішний, без мату. "
-                "Якщо просять пораду — дай її але з таким кринжовим поворотом що людина засміється. "
-                "Якщо просять фільм — порадь з описом типу 'там є сцена де...' і зроби це смішно. "
-                "Якщо питання серйозне — відповідай серйозно але додай один кринжовий коментар в кінці. "
-                "Ніколи не починай з 'Звичайно!' або 'Я радий допомогти' — це нудно і не в твоєму стилі. "
-                "Починай відповідь одразу з суті або з несподіваного коментаря."
+                "Ты — Пётр Интерактивный, неадекватный но добродушный ассистент группы друзей в Братиславе. "
+                "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке — никакого другого. "
+                "Твой стиль: кринжовый юмор, пошлые но не вульгарные шутки, неожиданные сравнения, "
+                "саркастические советы, абсурдные аналогии. "
+                "Ты как тот друг который всегда скажет что-то неуместное но точное. "
+                "Будь кратким — максимум 4-5 предложений. "
+                "Если просят анекдот — расскажи пошлый но смешной, без мата. "
+                "Если просят совет — дай его но с таким кринжовым поворотом что человек засмеётся. "
+                "Если просят фильм — посоветуй с описанием типа 'там есть сцена где...' и сделай это смешно. "
+                "Если вопрос серьёзный — отвечай серьёзно но добавь один кринжовый комментарий в конце. "
+                "Никогда не начинай с 'Конечно!' или 'Я рад помочь' — это скучно и не в твоём стиле. "
+                "Начинай ответ сразу с сути или с неожиданного комментария."
             )},
             {"role": "user", "content": question}
         ],
@@ -399,37 +394,35 @@ async def ask_ai(question: str) -> str:
                 else:
                     err = await r.text()
                     logger.error(f"Groq error {r.status}: {err}")
-                    return "😔 Помилка при зверненні до ШІ. Спробуй пізніше."
+                    return "😔 Ошибка при обращении к ИИ. Попробуй позже."
     except Exception as e:
         logger.error(f"Groq exception: {e}")
-        return "😔 Не вдалось отримати відповідь від ШІ."
+        return "😔 Не удалось получить ответ от ИИ."
 
-# ── Вітання нових учасників ──────────────────────────────────────────────────
+# ── Приветствие новых участников ──────────────────────────────────────────────────
 
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Вітає нового учасника і пояснює правила."""
     for member in update.message.new_chat_members:
         if member.is_bot:
             continue
-        # Одразу зберігаємо в теги щоб /gather бачив нового учасника
         storage.register_user(member)
         name = member.first_name
         await update.message.reply_text(
-            f"👋 Вітаємо, {name}!\n\n"
-            f"Радий бачити тебе в нашій компанії 🎉\n\n"
-            f"📋 *Заповни анкету* — напиши повідомлення:\n"
-            f"_про себе_ і далі розкажи хто ти, звідки, що любиш\n\n"
-            f"📌 *Правила групи:*\n"
-            f"✅ Будь активним — пиши, пропонуй івенти, відповідай\n"
-            f"😊 Будь позитивним — токсичність тут не в моді\n"
-            f"🤝 Поважай інших — ми всі тут для гарного часу\n"
-            f"🎉 Пропонуй ідеї — краща ідея та яку ти запропонував\n\n"
-            f"Натисни *Пєтя* або /start щоб побачити що я вмію 🤖",
+            f"👋 Добро пожаловать, {name}!\n\n"
+            f"Рад видеть тебя в нашей компании 🎉\n\n"
+            f"📋 *Заполни анкету* — напиши сообщение:\n"
+            f"_о себе_ и дальше расскажи кто ты, откуда, что любишь\n\n"
+            f"📌 *Правила группы:*\n"
+            f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
+            f"😊 Будь позитивным — токсичность тут не в моде\n"
+            f"🤝 Уважай других — мы все здесь ради хорошего времени\n"
+            f"🎉 Предлагай идеи — лучшая идея та, которую ты предложил\n\n"
+            f"Напиши *Петя* или /start чтобы увидеть что я умею 🤖",
             parse_mode="Markdown"
         )
 
 
-# ── Анкети ────────────────────────────────────
+# ── Анкеты ────────────────────────────────────
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profiles  = storage.load_profiles()
@@ -443,7 +436,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     target_id = int(uid)
                     break
             if target_id is None:
-                await update.message.reply_text(f"😔 Анкету для @{uname} не знайдено.")
+                await update.message.reply_text(f"😔 Анкета для @{uname} не найдена.")
                 return
         elif entity.type == "text_mention":
             target_id = entity.user.id
@@ -455,10 +448,10 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not p:
         if int(target_id) == update.effective_user.id:
             await update.message.reply_text(
-                "📋 У тебе ще немає анкети.\n\nНапиши повідомлення:\nпро себе Привіт! Мене звати Іван, 27 років, з Києва"
+                "📋 У тебя ещё нет анкеты.\n\nНапиши сообщение:\nо себе Привет! Меня зовут Иван, 27 лет, из Киева"
             )
         else:
-            await update.message.reply_text("😔 Ця людина ще не заповнила анкету.")
+            await update.message.reply_text("😔 Этот человек ещё не заполнил анкету.")
         return
 
     mention = f"@{he(p['username'])}" if p.get("username") else he(p["tg_name"])
@@ -471,13 +464,11 @@ async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profiles = storage.load_profiles()
     if not profiles:
         await update.message.reply_text(
-            "📭 Ще ніхто не заповнив анкету.\n\n"
-            "Напиши: про себе Привіт, мене звати..."
+            "📭 Ещё никто не заполнил анкету.\n\n"
+            "Напиши: о себе Привет, меня зовут..."
         )
         return
-    # Будуємо кнопки — кожна кнопка це ім'я людини, тисниш — отримуєш анкету
     keyboard = []
-    profile_map = {}  # callback_data -> uid
     for uid, p in profiles.items():
         label = p["tg_name"]
         if p.get("username"):
@@ -485,7 +476,7 @@ async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cb = f"showprofile_{uid}"
         keyboard.append([InlineKeyboardButton(label, callback_data=cb)])
     await update.message.reply_text(
-        f"📋 Анкети учасників: {len(profiles)}\n\nНатисни на ім'я щоб переглянути 👇",
+        f"📋 Анкеты участников: {len(profiles)}\n\nНажми на имя чтобы посмотреть 👇",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -496,28 +487,25 @@ async def cb_show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profiles = storage.load_profiles()
     p = profiles.get(uid)
     if not p:
-        await q.answer("Анкету не знайдено 😔", show_alert=True)
+        await q.answer("Анкета не найдена 😔", show_alert=True)
         return
-    mention = f"@{p['username']}" if p.get("username") else p["tg_name"]
     mention = f"@{he(p['username'])}" if p.get("username") else he(p["tg_name"])
     await q.message.reply_text(f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}", parse_mode="HTML")
 
-# ── Теги / Збір ───────────────────────────────
+# ── Теги / Сбор ───────────────────────────────
 
 async def cmd_tags_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags = storage.load_tags()
     if not tags:
-        await update.message.reply_text("📭 Список порожній. Бот запам'ятовує всіх хто пише у групі.")
+        await update.message.reply_text("📭 Список пустой. Бот запоминает всех кто пишет в группе.")
         return
-    lines = ["👥 Учасники групи:\n"]
+    lines = ["👥 Участники группы:\n"]
     for uid, u in tags.items():
         mention = f"@{u['username']}" if u.get("username") else u["name"]
         lines.append(f"• {u['name']} ({mention})")
     await update.message.reply_text("\n".join(lines))
 
 async def _get_active_members(bot, chat_id: int) -> list[dict]:
-    """Перевіряє tags.json через API і повертає тільки активних учасників.
-    Попутно очищує tags.json від тих хто вийшов."""
     tags = storage.load_tags()
     active = []
     to_remove = []
@@ -528,17 +516,14 @@ async def _get_active_members(bot, chat_id: int) -> list[dict]:
             if member.status in ("left", "kicked", "banned"):
                 to_remove.append(uid_str)
                 continue
-            # Оновлюємо дані на свіжі з API
             active.append({
                 "id": int(uid_str),
                 "name": member.user.first_name,
                 "username": member.user.username or "",
             })
         except Exception:
-            # Якщо користувач не знайдений — теж видаляємо
             to_remove.append(uid_str)
 
-    # Очищуємо tags.json
     if to_remove:
         for uid_str in to_remove:
             tags.pop(uid_str, None)
@@ -549,13 +534,23 @@ async def _get_active_members(bot, chat_id: int) -> list[dict]:
 
 async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    msg = await update.message.reply_text("⏳ Збираю список учасників...")
+
+    # Только для администраторов
+    try:
+        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if member.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Только администраторы могут использовать эту команду.")
+            return
+    except Exception:
+        pass
+
+    msg = await update.message.reply_text("⏳ Собираю список участников...")
     members = await _get_active_members(context.bot, chat_id)
 
     if not members:
         await msg.edit_text(
-            "😔 Список порожній.\n\n"
-            "Бот запам\'ятовує людей коли вони пишуть у групі."
+            "😔 Список пустой.\n\n"
+            "Бот запоминает людей когда они пишут в группе."
         )
         return
 
@@ -563,8 +558,8 @@ async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     without_username = [m["name"] for m in members if not m.get("username")]
     all_mentions = with_username + without_username
 
-    custom_text = " ".join(context.args) if context.args else "Збір! 👋"
-    text = f"📢 {custom_text}\n\n" + " ".join(all_mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
+    custom_text = " ".join(context.args) if context.args else "Сбор! 👋"
+    text = f"📢 {custom_text}\n\n" + " ".join(all_mentions) + "\n\nСообщение удалится через 1 минуту 🗑"
 
     try:
         await msg.delete()
@@ -584,14 +579,14 @@ async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-# ── Івенти ────────────────────────────────────
+# ── Ивенты ────────────────────────────────────
 
-def event_text(ev):
-    etype     = EVENT_TYPES().get(ev["type"], ev["type"])
-    day_str   = f"{DAY_EMOJI[ev['day']]} {DAYS()[ev['day']]}"
+def event_text(ev, chat_id=None):
+    etype     = EVENT_TYPES_RU.get(ev["type"], ev["type"])
+    day_str   = f"{DAY_EMOJI[ev['day']]} {DAYS_RU[ev['day']]}"
     yes_names = [n for n, v in ev["votes_named"].values() if v]
     no_names  = [n for n, v in ev["votes_named"].values() if not v]
-    lines = [f"🎉 *Івент від {ev['author']}*\n"]
+    lines = [f"🎉 *Ивент от {ev['author']}*\n"]
     if ev.get("custom_title"):
         lines.append(f"📝 *{ev['custom_title']}*\n_{etype}_")
     else:
@@ -599,9 +594,9 @@ def event_text(ev):
     lines.append(f"\n{day_str}")
     if ev.get("description"):
         lines.append(f"\n💬 {ev['description']}")
-    lines.append(f"\n✅ Йдуть ({len(yes_names)}): {', '.join(yes_names) if yes_names else 'поки ніхто'}")
+    lines.append(f"\n✅ Идут ({len(yes_names)}): {', '.join(yes_names) if yes_names else 'пока никто'}")
     if no_names:
-        lines.append(f"❌ Не йдуть: {', '.join(no_names)}")
+        lines.append(f"❌ Не идут: {', '.join(no_names)}")
     return "\n".join(lines)
 
 def event_kb(ev):
@@ -609,15 +604,39 @@ def event_kb(ev):
     yes_c = sum(1 for n, v in ev["votes_named"].values() if v)
     no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"✅ Йду ({yes_c})",    callback_data=f"ev_yes_{eid}"),
-        InlineKeyboardButton(f"❌ Не йду ({no_c})", callback_data=f"ev_no_{eid}"),
+        InlineKeyboardButton(f"✅ Иду ({yes_c})",    callback_data=f"ev_yes_{eid}"),
+        InlineKeyboardButton(f"❌ Не иду ({no_c})", callback_data=f"ev_no_{eid}"),
     ]])
+
+def all_events_text(ev_list, chat_id=None):
+    if not ev_list:
+        return "📭 Нет активных ивентов.\n\nПредложи: /event"
+    lines = [f"📅 *Активные ивенты ({len(ev_list)}):*\n"]
+    for ev in ev_list:
+        lines.append(event_text(ev, chat_id))
+        lines.append("─────────────────")
+    return "\n".join(lines)
+
+def all_events_kb(ev_list, chat_id=None):
+    if not ev_list:
+        return None
+    buttons = []
+    for ev in ev_list:
+        eid   = ev["id"]
+        yes_c = sum(1 for n, v in ev["votes_named"].values() if v)
+        no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
+        title = ev.get("custom_title") or EVENT_TYPES_RU.get(ev["type"], ev["type"])
+        buttons.append([
+            InlineKeyboardButton(f"✅ {title[:20]} ({yes_c})", callback_data=f"ev_yes_{eid}"),
+            InlineKeyboardButton(f"❌ Не иду ({no_c})",       callback_data=f"ev_no_{eid}"),
+        ])
+    return InlineKeyboardMarkup(buttons)
 
 async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
-            for key, label in EVENT_TYPES().items()]
+            for key, label in EVENT_TYPES_RU.items()]
     await update.message.reply_text(
-        "🎉 *Створити івент*\n\nОбери тип події:",
+        "🎉 *Создать ивент*\n\nВыбери тип события:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(rows)
     )
@@ -631,16 +650,17 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if etype == "custom":
         await q.edit_message_text(
-            "✏️ Напиши назву своєї події наступним повідомленням:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel")]])
+            "✏️ Напиши название своего события следующим сообщением:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")]])
         )
         return
 
-    days_list = DAYS()
+    days_list = DAYS_RU
     day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {days_list[i]}", callback_data=f"eday_{etype}_{i}")] for i in range(7)]
-    day_rows.append([InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel")])
+    day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
+    etype_label = EVENT_TYPES_RU.get(etype, etype)
     await q.edit_message_text(
-        f"*{EVENT_TYPES[etype]}*\n\nКоли проводимо?",
+        f"*{etype_label}*\n\nКогда проводим?",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(day_rows)
     )
@@ -653,7 +673,6 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not pending:
         return
 
-    # Очікуємо опис івенту
     if pending.get("awaiting") == "description":
         pending.pop("awaiting")
         pending["description"] = update.message.text
@@ -674,15 +693,14 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _publish_event(context.bot, chat_id, ev)
         return
 
-    # Очікуємо назву кастомного івенту
     if pending.get("type") != "custom":
         return
     pending["custom_title"] = update.message.text
-    days_list2 = DAYS()
+    days_list2 = DAYS_RU
     day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {days_list2[i]}", callback_data=f"eday_custom_{i}")] for i in range(7)]
-    day_rows.append([InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel")])
+    day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
     await update.message.reply_text(
-        f"📝 _{update.message.text}_\n\nКоли проводимо?",
+        f"📝 _{update.message.text}_\n\nКогда проводим?",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(day_rows)
     )
@@ -697,7 +715,6 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     old     = context.bot_data.get(key, {})
     chat_id = q.message.chat_id
 
-    # Зберігаємо чернетку і просимо опис
     context.bot_data[key] = {
         "type":         etype,
         "custom_title": old.get("custom_title"),
@@ -708,19 +725,44 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     await q.edit_message_text(
-        f"✏️ Додай опис до івенту — де зустрічаємось, деталі, що брати тощо.\n\n"
-        f"Або натисни кнопку щоб пропустити.",
+        f"✏️ Добавь описание к ивенту — где встречаемся, детали, что брать и т.д.\n\n"
+        f"Или нажми кнопку чтобы пропустить.",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel"),
+            InlineKeyboardButton("⏭ Пропустить", callback_data=f"eday_skip_{etype}_{day}"),
+            InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel"),
         ]])
     )
 
+async def cb_eday_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q       = update.callback_query
+    await q.answer()
+    parts   = q.data.split("_")  # eday_skip_etype_day
+    etype   = parts[2]
+    day     = int(parts[3])
+    key     = f"ev_{q.from_user.id}_{q.message.chat_id}"
+    old     = context.bot_data.get(key, {})
+    chat_id = q.message.chat_id
 
-# Зберігаємо message_id спільного повідомлення: { chat_id: message_id }
+    ev = {
+        "id":           next_event_id(),
+        "type":         etype,
+        "custom_title": old.get("custom_title"),
+        "day":          day,
+        "description":  None,
+        "author":       q.from_user.first_name,
+        "author_id":    q.from_user.id,
+        "votes_named":  {},
+        "msg_id":       None,
+    }
+    context.bot_data.pop(key, None)
+    await q.edit_message_text("✅ Ивент создан!")
+    await _publish_event(context.bot, chat_id, ev)
+
+
+# Сохраняем message_id общего сообщения: { chat_id: message_id }
 _events_msg: dict = {}
 
 async def _refresh_events_message(bot, chat_id):
-    """Оновлює або створює спільне повідомлення з усіма івентами."""
     ev_list = _events.get(chat_id, [])
     text = all_events_text(ev_list, chat_id)
     kb   = all_events_kb(ev_list, chat_id)
@@ -728,13 +770,13 @@ async def _refresh_events_message(bot, chat_id):
     msg_id = _events_msg.get(chat_id)
     if msg_id:
         try:
-            await bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=kb)
+            await bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id,
+                                         reply_markup=kb, parse_mode="Markdown")
             return
         except Exception:
-            pass  # Якщо не вдалось редагувати — створимо нове
+            pass
 
-    # Створюємо нове повідомлення
-    sent = await bot.send_message(chat_id, text, reply_markup=kb)
+    sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
     _events_msg[chat_id] = sent.message_id
     try:
         await bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
@@ -742,7 +784,6 @@ async def _refresh_events_message(bot, chat_id):
         logger.warning(f"Pin failed: {e}")
 
 async def _publish_event(bot, chat_id, ev):
-    """Додає івент і оновлює спільне повідомлення."""
     if chat_id not in _events:
         _events[chat_id] = []
     _events[chat_id].append(ev)
@@ -755,7 +796,7 @@ async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     context.bot_data.pop(f"ev_{q.from_user.id}_{q.message.chat_id}", None)
-    await q.edit_message_text("❌ Скасовано.")
+    await q.edit_message_text("❌ Отменено.")
 
 async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
@@ -767,24 +808,21 @@ async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ev = next((e for e in _events.get(chat_id, []) if e["id"] == eid), None)
     if not ev:
-        await q.answer("Ивент не найден 😔" if lang(chat_id) == "ru" else "Івент не знайдено 😔", show_alert=True)
+        await q.answer("Ивент не найден 😔", show_alert=True)
         return
 
     if action == "change":
-        # Видалити голос
         ev["votes_named"].pop(str(user.id), None)
         storage.save_events(_events)
-        await q.answer(
-            "Голос убран, можешь проголосовать снова" if lang(chat_id) == "ru"
-            else "Голос скасовано, можеш проголосувати знову"
-        )
-    else:
+        await q.answer("Голос убран, можешь проголосовать снова")
+    elif action == "yes":
         ev["votes_named"][str(user.id)] = [user.first_name, True]
         storage.save_events(_events)
-        await q.answer(
-            "✅ Отметился как «Иду»!" if lang(chat_id) == "ru"
-            else "✅ Відмітився як «Йду»!"
-        )
+        await q.answer("✅ Отметился как «Иду»!")
+    elif action == "no":
+        ev["votes_named"][str(user.id)] = [user.first_name, False]
+        storage.save_events(_events)
+        await q.answer("❌ Отметился как «Не иду».")
 
     await _refresh_events_message(context.bot, chat_id)
 
@@ -792,10 +830,7 @@ async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     ev_list = _events.get(chat_id, [])
     if not ev_list:
-        await update.message.reply_text(
-            t(chat_id, "📭 Немає активних івентів.\n\nЗапропонуй: /event",
-                       "📭 Нет активных ивентов.\n\nПредложи: /event")
-        )
+        await update.message.reply_text("📭 Нет активных ивентов.\n\nПредложи: /event")
         return
     await _refresh_events_message(context.bot, chat_id)
 
@@ -817,7 +852,7 @@ async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _events[chat_id] = []
     storage.save_events(_events)
 
-    msg = await update.message.reply_text("🗑 Всі івенти видалено і відкріплено.")
+    msg = await update.message.reply_text("🗑 Все ивенты удалены и откреплены.")
     await asyncio.sleep(3)
     try:
         await update.message.delete()
@@ -835,34 +870,31 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data    = activity.get(chat_id, {})
     tags    = storage.load_tags()
 
-    # Якщо немає статистики — показуємо тих хто є в списку але нічого не писав
     if not data:
         if tags:
             names = [u["name"] for u in tags.values()]
             await update.message.reply_text(
-                f"📭 Статистика порожня — ніхто не писав з моменту /autostart.\n\n"
-                f"👥 Відомі учасники: {', '.join(names)}"
+                f"📭 Статистика пустая — никто не писал с момента /autostart.\n\n"
+                f"👥 Известные участники: {', '.join(names)}"
             )
         else:
-            await update.message.reply_text("📭 Статистика порожня. Запусти /autostart і почни рахунок.")
+            await update.message.reply_text("📭 Статистика пустая. Запусти /autostart и начни счёт.")
         return
 
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
     total  = sum(u["count"] for _, u in srt)
     active = [(uid, u) for uid, u in srt if u["count"] > 0]
-    silent_in_data = [(uid, u) for uid, u in srt if u["count"] == 0]
 
-    lines = [f"📈 Звіт активності\n(повідомлень: {total})\n"]
+    lines = [f"📈 Отчёт активности\n(сообщений: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
         bl  = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10)
         pct = round(u["count"]/total*100) if total else 0
-        lines.append(f"{medal(rank)} {u['name']} — {u['count']} повід. ({pct}%)\n{'█'*bl+'░'*(10-bl)}")
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ. ({pct}%)\n{'█'*bl+'░'*(10-bl)}")
 
-    # Мовчуни — ті хто є в tags але нічого не писав з моменту /autostart
     active_ids = {uid for uid, _ in active}
     silent_tags = [u for uid, u in tags.items() if int(uid) not in active_ids]
     if silent_tags:
-        lines.append("\n👻 Мовчать з останнього /autostart:")
+        lines.append("\n👻 Молчат с последнего /autostart:")
         for u in silent_tags:
             mention = f"@{u['username']}" if u.get("username") else u["name"]
             lines.append(f"  • {u['name']} ({mention})")
@@ -871,7 +903,7 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     activity[update.effective_chat.id] = {}
-    await update.message.reply_text("🔄 Статистику скинуто!")
+    await update.message.reply_text("🔄 Статистика сброшена!")
 
 async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"❓ {random.choice(RANDOM_QUESTIONS)}")
@@ -879,7 +911,7 @@ async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(random.choice(DISCUSSION_TOPICS), parse_mode="Markdown")
 
-# ── Автоматичні завдання ──────────────────────
+# ── Автоматические задачи ──────────────────────
 
 async def sched_random(context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now(KYIV_TZ)
@@ -891,22 +923,22 @@ async def sched_random(context: ContextTypes.DEFAULT_TYPE):
 
 async def sched_howwasday(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_poll(
-        context.job.data["chat_id"], "🌙 Як пройшов ваш день?",
-        ["🔥 Відмінно!", "😊 Добре", "😐 Нормально", "😔 Важкувато", "🤦 Краще не питай"],
+        context.job.data["chat_id"], "🌙 Как прошёл ваш день?",
+        ["🔥 Отлично!", "😊 Хорошо", "😐 Нормально", "😔 Тяжеловато", "🤦 Лучше не спрашивай"],
         is_anonymous=False, allows_multiple_answers=False
     )
 
 async def sched_monday(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         context.job.data["chat_id"],
-        "📅 *Новий тиждень!* Є плани?\n\nЗапропонуй івент: /event  |  Переглянь: /events",
+        "📅 *Новая неделя!* Есть планы?\n\nПредложи ивент: /event  |  Посмотри: /events",
         parse_mode="Markdown"
     )
 
 async def sched_friday(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         context.job.data["chat_id"],
-        "🎉 *П'ятниця!* Що на вихідних?\n\nЗапропонуй: /event  |  Переглянь: /events",
+        "🎉 *Пятница!* Что на выходных?\n\nПредложи: /event  |  Посмотри: /events",
         parse_mode="Markdown"
     )
 
@@ -918,10 +950,10 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
     total  = sum(u["count"] for _, u in srt)
     active = [(uid, u) for uid, u in srt if u["count"] > 0]
-    lines  = [f"📈 Тижневий звіт\n(повідомлень: {total})\n"]
+    lines  = [f"📈 Еженедельный отчёт\n(сообщений: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
         bl = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10) if active else 0
-        lines.append(f"{medal(rank)} {u['name']} — {u['count']} повід.\n{'█'*bl+'░'*(10-bl)}")
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ.\n{'█'*bl+'░'*(10-bl)}")
     await context.bot.send_message(chat_id, "\n".join(lines))
     active_ids = {uid for uid, u in active}
     tags = storage.load_tags()
@@ -929,7 +961,7 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
     if silent:
         mentions = [f"@{u['username']}" if u.get("username") else u["name"] for u in silent]
         await context.bot.send_message(chat_id,
-            "👻 Мовчуни тижня:\n\n" + " ".join(mentions) + "\n\nЯк справи? 💙")
+            "👻 Молчуны недели:\n\n" + " ".join(mentions) + "\n\nКак дела? 💙")
     for uid in activity[chat_id]:
         activity[chat_id][uid]["count"] = 0
 
@@ -953,33 +985,32 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
 
     await update.message.reply_text(
-        "✅ Автоматичні повідомлення увімкнено!\n\n"
+        "✅ Автоматические сообщения включены!\n\n"
         "🌤 08:00 — погода\n"
-        "📰 08:05 — смішна новина дня\n"
-        "📅 Пн 10:00 — нагадування + івент\n"
-        "🎉 Пт 10:00 — плани на вихідні\n"
-        "🌙 Щодня 21:00 — як пройшов день\n"
-        "📈 Нд 20:00 — тижневий звіт\n"
-        "❓ Кожні ~5 год (7–22) — рандомне питання"
+        "📰 08:05 — новость дня\n"
+        "📅 Пн 10:00 — напоминание + ивент\n"
+        "🎉 Пт 10:00 — планы на выходные\n"
+        "🌙 Каждый день 21:00 — как прошёл день\n"
+        "📈 Вс 20:00 — еженедельный отчёт\n"
+        "❓ Каждые ~5 ч (7–22) — случайный вопрос"
     )
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🤖✨ Петро Інтерактивний до ваших послуг!\n\n"
-        "Я тут щоб ваша компанія не розпадалась від мовчанки 😄\n\n"
-        "Щоб заповнити анкету — напиши повідомлення:\n"
-        "про себе  і далі розкажи про себе 🙂\n\n"
-        "Наприклад: про себе Привіт! Я Петро, 28 років, люблю настілки і каву ☕"
+        "🤖✨ Пётр Интерактивный к вашим услугам!\n\n"
+        "Я здесь чтобы ваша компания не распадалась от молчанки 😄\n\n"
+        "Чтобы заполнить анкету — напиши сообщение:\n"
+        "о себе  и дальше расскажи о себе 🙂\n\n"
+        "Например: о себе Привет! Я Пётр, 28 лет, люблю настолки и кофе ☕"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Анкети учасників",     callback_data="menu_profiles")],
-        [InlineKeyboardButton("🎉 Запропонувати івент",  callback_data="menu_event"),
-         InlineKeyboardButton("📅 Активні івенти",       callback_data="menu_events")],
-        [InlineKeyboardButton("📢 Тегнути всіх",         callback_data="menu_gather")],
+        [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
+        [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
+         InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-        [InlineKeyboardButton("❓ Гостре питання",        callback_data="menu_question"),
+        [InlineKeyboardButton("❓ Острый вопрос",         callback_data="menu_question"),
          InlineKeyboardButton("💬 Тема",                 callback_data="menu_topic")],
-        [InlineKeyboardButton("📊 Звіт активності",      callback_data="menu_report")],
+        [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
     ])
     await update.message.reply_text(text, reply_markup=keyboard)
 
@@ -994,96 +1025,33 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "event":
         rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
-                for key, label in EVENT_TYPES().items()]
+                for key, label in EVENT_TYPES_RU.items()]
         await q.message.reply_text(
-            "🎉 Створити івент\n\nОбери тип події:",
+            "🎉 *Создать ивент*\n\nВыбери тип события:",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(rows)
         )
 
     elif action == "events":
         ev_list = _events.get(chat_id, [])
         if not ev_list:
-            await q.message.reply_text("📭 Немає активних івентів.\n\nЗапропонуй через кнопку вище!")
+            await q.message.reply_text("📭 Нет активных ивентов.\n\nПредложи через кнопку выше!")
         else:
-            await q.message.reply_text(f"📋 Активні івенти ({len(ev_list)}):")
-            for ev in ev_list:
-                await q.message.reply_text(event_text(ev), reply_markup=event_kb(ev))
-
-    elif action == "gather":
-        tags = storage.load_tags()
-        if not tags:
-            await q.message.reply_text("😔 Список порожній. Бот запам'ятовує людей коли вони пишуть у групі.")
-            return
-        with_username = []
-        without_username = []
-        for uid, u in tags.items():
-            if u.get("username"):
-                uname = u["username"]
-                with_username.append(f"@{uname}")
-            else:
-                without_username.append(u["name"])
-        all_mentions = with_username + without_username
-        text = "📢 Збір! 👋\n\n" + " ".join(all_mentions) + "\n\nПовідомлення видалиться через 1 хвилину 🗑"
-        sent = await q.message.reply_text(text)
-        async def delete_it(ctx):
-            try:
-                await ctx.bot.delete_message(chat_id, sent.message_id)
-            except Exception:
-                pass
-        context.job_queue.run_once(delete_it, when=60)
+            await _refresh_events_message(context.bot, chat_id)
 
     elif action == "weather":
-        msg = await q.message.reply_text("⏳ Отримую погоду...")
+        msg = await q.message.reply_text("⏳ Получаю погоду...")
         data = await fetch_weather()
         if data:
             await msg.edit_text(build_weather_text(data), parse_mode="Markdown")
         else:
-            await msg.edit_text("😔 Не вдалось отримати погоду.")
+            await msg.edit_text("😔 Не удалось получить погоду.")
 
     elif action == "question":
         await q.message.reply_text(f"❓ {random.choice(RANDOM_QUESTIONS)}")
 
     elif action == "topic":
         await q.message.reply_text(random.choice(DISCUSSION_TOPICS), parse_mode="Markdown")
-
-    elif action == "challenge":
-        chat_id2 = q.message.chat_id
-        challenge = random.choice(WEEKLY_CHALLENGES)
-        now2 = datetime.now(KYIV_TZ)
-        week2 = now2.strftime("%Y-W%U")
-        _challenges[chat_id2] = {"text": challenge, "week": week2, "accepted": [], "done": [], "skip": []}
-        kb2 = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Приймаю виклик!", callback_data="challenge_accept"),
-            InlineKeyboardButton("😅 Пропускаю", callback_data="challenge_skip"),
-        ]])
-        await q.message.reply_text(f"💪 {challenge}\n\nХто в грі?", reply_markup=kb2)
-
-    elif action == "challengestats":
-        chat_id2 = q.message.chat_id
-        ch2 = _challenges.get(chat_id2)
-        if not ch2:
-            await q.message.reply_text("📭 Активного виклику немає.\n\nЗапусти новий через кнопку Виклик тижня!")
-            return
-        now2 = datetime.now(KYIV_TZ)
-        week_label2 = f"Тиждень {now2.strftime('%d.%m')}"
-        accepted2 = ch2.get("accepted", [])
-        done2     = ch2.get("done", [])
-        skip2     = ch2.get("skip", [])
-        lines2 = [f"💪 Виклик тижня ({week_label2})\n", f"_{ch2['text'].replace('Виклик тижня: ', '')}_\n"]
-        if done2:
-            lines2.append(f"🏆 Виконали: {', '.join(u['name'] for u in done2)}")
-        acc_nd = [u for u in accepted2 if u["id"] not in [d["id"] for d in done2]]
-        if acc_nd:
-            lines2.append(f"⏳ В процесі: {', '.join(u['name'] for u in acc_nd)}")
-        if skip2:
-            lines2.append(f"😅 Пропустили: {', '.join(u['name'] for u in skip2)}")
-        if not accepted2 and not done2 and not skip2:
-            lines2.append("🦗 Ніхто ще не відреагував...")
-        kb3 = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Приймаю!", callback_data="challenge_accept"),
-            InlineKeyboardButton("🏆 Виконав!", callback_data="challenge_done"),
-        ]])
-        await q.message.reply_text("\n".join(lines2), reply_markup=kb3)
 
     elif action == "report":
         await _menu_report(q, context)
@@ -1105,15 +1073,14 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         _events[chat_id] = []
         storage.save_events(_events)
-        await q.message.reply_text("🗑 Всі івенти видалено!")
+        await q.message.reply_text("🗑 Все ивенты удалены!")
 
 async def _menu_profiles(q, context):
     profiles = storage.load_profiles()
     if not profiles:
-        await q.message.reply_text("📭 Ще ніхто не заповнив анкету.\n\nНапиши: про себе і розкажи про себе")
+        await q.message.reply_text("📭 Ещё никто не заполнил анкету.\n\nНапиши: о себе и расскажи о себе")
         return
     chat_id = q.message.chat_id
-    # Перевіряємо через Telegram API хто зараз в групі
     filtered = {}
     for uid, p in profiles.items():
         try:
@@ -1121,9 +1088,9 @@ async def _menu_profiles(q, context):
             if member.status not in ("left", "kicked", "banned"):
                 filtered[uid] = p
         except Exception:
-            pass  # Не знайдено — пропускаємо
+            pass
     if not filtered:
-        await q.message.reply_text("📭 Ніхто з поточних учасників ще не заповнив анкету.")
+        await q.message.reply_text("📭 Никто из текущих участников ещё не заполнил анкету.")
         return
     keyboard = []
     for uid, p in filtered.items():
@@ -1132,7 +1099,7 @@ async def _menu_profiles(q, context):
             label += f" (@{p['username']})"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"showprofile_{uid}")])
     await q.message.reply_text(
-        f"📋 Анкети учасників групи: {len(filtered)}\n\nНатисни на ім'я 👇",
+        f"📋 Анкеты участников группы: {len(filtered)}\n\nНажми на имя 👇",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -1143,22 +1110,22 @@ async def _menu_report(q, context):
     if not data:
         names = [u["name"] for u in tags.values()] if tags else []
         await q.message.reply_text(
-            f"📭 Статистика порожня — ніхто не писав з /autostart.\n\n"
-            + (f"👥 Відомі: {', '.join(names)}" if names else "")
+            f"📭 Статистика пустая — никто не писал с /autostart.\n\n"
+            + (f"👥 Известные: {', '.join(names)}" if names else "")
         )
         return
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
     total  = sum(u["count"] for _, u in srt)
     active = [(uid, u) for uid, u in srt if u["count"] > 0]
-    lines  = [f"📈 Звіт активності\n(повідомлень: {total})\n"]
+    lines  = [f"📈 Отчёт активности\n(сообщений: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
         bl  = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10)
         pct = round(u["count"]/total*100) if total else 0
-        lines.append(f"{medal(rank)} {u['name']} — {u['count']} повід. ({pct}%)\n{'█'*bl+'░'*(10-bl)}")
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ. ({pct}%)\n{'█'*bl+'░'*(10-bl)}")
     active_ids = {uid for uid, _ in active}
     silent = [u for uid, u in tags.items() if int(uid) not in active_ids]
     if silent:
-        lines.append("\n👻 Мовчать:")
+        lines.append("\n👻 Молчат:")
         for u in silent:
             mention = f"@{u['username']}" if u.get("username") else u["name"]
             lines.append(f"  • {u['name']} ({mention})")
@@ -1178,60 +1145,49 @@ async def _menu_autostart(q, context):
     jq.run_daily(sched_monday,        time=time(10,0,tzinfo=KYIV_TZ), days=(0,),            data={"chat_id":chat_id}, name=f"{chat_id}_monday")
     jq.run_daily(sched_weekly_report, time=time(20,0,tzinfo=KYIV_TZ), days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     await q.message.reply_text(
-        "✅ Авто-повідомлення увімкнено!\n\n"
+        "✅ Авто-сообщения включены!\n\n"
         "🌤 08:00 — погода\n"
-        "📅 Пн 10:00 — нагадування\n"
-        "🎉 Пт 10:00 — плани на вихідні\n"
-        "🌙 21:00 — як пройшов день\n"
-        "📈 Нд 20:00 — тижневий звіт\n"
-        "❓ Кожні ~5 год — питання"
+        "📅 Пн 10:00 — напоминание\n"
+        "🎉 Пт 10:00 — планы на выходные\n"
+        "🌙 21:00 — как прошёл день\n"
+        "📈 Вс 20:00 — еженедельный отчёт\n"
+        "❓ Каждые ~5 ч — вопрос"
     )
 
 
 async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Видаляє анкету і теги коли учасник виходить з групи."""
     if not update.message.left_chat_member:
         return
     user = update.message.left_chat_member
     if user.is_bot:
         return
 
-    # Видалити анкету
     profiles = storage.load_profiles()
     if user.id in profiles:
         del profiles[user.id]
         storage.save_profiles(profiles)
 
-    # Видалити з тегів
     tags = storage.load_tags()
     if str(user.id) in tags:
         del tags[str(user.id)]
         storage.save_tags(tags)
 
-    # Видалити зі статистики активності
     chat_id = update.effective_chat.id
     if user.id in activity.get(chat_id, {}):
         del activity[chat_id][user.id]
 
     await update.message.reply_text(
-        f"👋 {user.first_name} покинув групу. Видалено з анкет, списку учасників і статистики."
+        f"👋 {user.first_name} покинул группу. Удалён из анкет, списка участников и статистики."
     )
 
 
-
-
-
-
 async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Адмін додає учасників в список для /gather.
-    Використання: /addmember @username1 @username2 або реплай на повідомлення"""
     chat_id = update.effective_chat.id
 
-    # Перевіряємо чи адмін
     try:
         member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
         if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Тільки адміністратори можуть додавати учасників.")
+            await update.message.reply_text("❌ Только администраторы могут добавлять участников.")
             return
     except Exception:
         pass
@@ -1240,7 +1196,6 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     added = []
     not_found = []
 
-    # Якщо реплай на повідомлення — додаємо автора
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
         if user and not user.is_bot:
@@ -1250,11 +1205,9 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             added.append(user.first_name)
 
-    # Якщо є mention'и в повідомленні
     for entity in (update.message.entities or []):
         if entity.type == "mention":
             username = update.message.text[entity.offset+1:entity.offset+entity.length]
-            # Знаходимо user_id по username через get_chat_member
             try:
                 m = await context.bot.get_chat_member(chat_id, f"@{username}")
                 tags[str(m.user.id)] = {
@@ -1274,10 +1227,10 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not added and not not_found:
         await update.message.reply_text(
-            "ℹ️ Як використовувати:\n\n"
-            "• /addmember @username — додати одного\n"
-            "• /addmember @user1 @user2 — додати кількох\n"
-            "• Відповідь на повідомлення + /addmember — додати автора"
+            "ℹ️ Как использовать:\n\n"
+            "• /addmember @username — добавить одного\n"
+            "• /addmember @user1 @user2 — добавить нескольких\n"
+            "• Ответ на сообщение + /addmember — добавить автора"
         )
         return
 
@@ -1285,21 +1238,20 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = []
     if added:
-        lines.append(f"✅ Додано ({len(added)}): {', '.join(added)}")
+        lines.append(f"✅ Добавлено ({len(added)}): {', '.join(added)}")
     if not_found:
-        lines.append(f"❌ Не знайдено: {', '.join(not_found)}")
-    lines.append(f"\n👥 Всього в списку: {len(tags)}")
+        lines.append(f"❌ Не найдено: {', '.join(not_found)}")
+    lines.append(f"\n👥 Всего в списке: {len(tags)}")
     await update.message.reply_text("\n".join(lines))
 
 
 async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Адмін видаляє учасника зі списку вручну."""
     chat_id = update.effective_chat.id
 
     try:
         member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
         if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Тільки адміністратори можуть видаляти учасників.")
+            await update.message.reply_text("❌ Только администраторы могут удалять участников.")
             return
     except Exception:
         pass
@@ -1329,50 +1281,47 @@ async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not removed:
         await update.message.reply_text(
-            "ℹ️ Вкажи кого видалити:\n"
-            "/removemember @username або відповідь на повідомлення"
+            "ℹ️ Укажи кого удалить:\n"
+            "/removemember @username или ответ на сообщение"
         )
         return
 
     storage.save_tags(tags)
     await update.message.reply_text(
-        f"🗑 Видалено: {', '.join(removed)}\n"
-        f"👥 Залишилось в списку: {len(tags)}"
+        f"🗑 Удалено: {', '.join(removed)}\n"
+        f"👥 Осталось в списке: {len(tags)}"
     )
 
 
 async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показати поточний список учасників для /gather."""
     tags = storage.load_tags()
     if not tags:
         await update.message.reply_text(
-            "📭 Список порожній.\n\n"
-            "Додай учасників: /addmember @username"
+            "📭 Список пустой.\n\n"
+            "Добавь участников: /addmember @username"
         )
         return
-    lines = [f"👥 Список учасників для /gather ({len(tags)}):\n"]
+    lines = [f"👥 Список участников для /gather ({len(tags)}):\n"]
     for uid, u in tags.items():
         mention = f"@{u['username']}" if u.get("username") else u["name"]
         lines.append(f"• {u['name']} ({mention})")
-    lines.append("\nДодати: /addmember @username")
-    lines.append("Видалити: /removemember @username")
+    lines.append("\nДобавить: /addmember @username")
+    lines.append("Удалить: /removemember @username")
     await update.message.reply_text("\n".join(lines))
 
 
 async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Очищує всі списки від учасників яких вже немає в групі."""
     chat_id = update.effective_chat.id
 
-    # Тільки адміни
     try:
         m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
         if m.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Тільки адміністратори.")
+            await update.message.reply_text("❌ Только администраторы.")
             return
     except Exception:
         pass
 
-    msg = await update.message.reply_text("⏳ Перевіряю учасників...")
+    msg = await update.message.reply_text("⏳ Проверяю участников...")
 
     tags     = storage.load_tags()
     profiles = storage.load_profiles()
@@ -1400,40 +1349,24 @@ async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE
     if removed_names:
         await msg.edit_text(
             f"✅ Очищено!\n\n"
-            f"🗑 Видалено з усіх списків ({len(removed_names)}): {', '.join(removed_names)}\n"
-            f"👥 Залишилось учасників: {len(tags)}"
+            f"🗑 Удалено из всех списков ({len(removed_names)}): {', '.join(removed_names)}\n"
+            f"👥 Осталось участников: {len(tags)}"
         )
     else:
         await msg.edit_text(
-            f"✅ Всі списки актуальні — нікого не видалено.\n"
-            f"👥 Учасників: {len(tags)}"
+            f"✅ Все списки актуальны — никого не удалено.\n"
+            f"👥 Участников: {len(tags)}"
         )
 
 async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Вибір мови: /lang uk або /lang ru"""
-    chat_id = update.effective_chat.id
-    args = context.args
-    if not args or args[0] not in ("uk", "ru"):
-        current = _lang.get(chat_id, "uk")
-        await update.message.reply_text(
-            f"🌐 Поточна мова / Текущий язык: {'🇺🇦 Українська' if current == 'uk' else '🇷🇺 Русский'}\n\n"
-            "Змінити / Изменить:\n"
-            "/lang uk — Українська 🇺🇦\n"
-            "/lang ru — Русский 🇷🇺"
-        )
-        return
-    _lang[chat_id] = args[0]
-    if args[0] == "ru":
-        await update.message.reply_text("🇷🇺 Язык изменён на русский!")
-    else:
-        await update.message.reply_text("🇺🇦 Мову змінено на українську!")
+    await update.message.reply_text("🇷🇺 Бот работает на русском языке.")
 
 
 def main():
     import os
     TOKEN = os.environ.get("BOT_TOKEN")
     if not TOKEN:
-        raise ValueError("BOT_TOKEN не встановлено!")
+        raise ValueError("BOT_TOKEN не установлен!")
 
     app = Application.builder().token(TOKEN).build()
 
@@ -1444,33 +1377,34 @@ def main():
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
-    app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
-    app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
-    app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no|change)_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_etype,       pattern=r"^etype_"))
+    app.add_handler(CallbackQueryHandler(cb_eday,        pattern=r"^eday_\w+_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_eday_skip,   pattern=r"^eday_skip_"))
+    app.add_handler(CallbackQueryHandler(cb_ev_cancel,   pattern=r"^ev_cancel$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_vote,     pattern=r"^ev_(yes|no|change)_\d+$"))
 
-    app.add_handler(CommandHandler("start",       cmd_start))
-    app.add_handler(CommandHandler("help",        cmd_start))
-    app.add_handler(CommandHandler("event",       cmd_event))
-    app.add_handler(CommandHandler("events",      cmd_events_list))
-    app.add_handler(CommandHandler("clearevents", cmd_clear_events))
-    app.add_handler(CommandHandler("weather",     cmd_weather))
-    app.add_handler(CommandHandler("question",    cmd_question))
-    app.add_handler(CommandHandler("topic",       cmd_topic))
-    app.add_handler(CommandHandler("report",      cmd_report))
-    app.add_handler(CommandHandler("resetstats",  cmd_reset))
-    app.add_handler(CommandHandler("gather",      cmd_gather))
-    app.add_handler(CommandHandler("tags",        cmd_tags_list))
-    app.add_handler(CommandHandler("profile",     cmd_profile))
-    app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
-    app.add_handler(CommandHandler("autostart",   cmd_autostart))
-    app.add_handler(CommandHandler("lang", cmd_lang))
-    app.add_handler(CommandHandler("addmember",   cmd_addmember))
-    app.add_handler(CommandHandler("removemember", cmd_removemember))
-    app.add_handler(CommandHandler("listmembers", cmd_listmembers))
+    app.add_handler(CommandHandler("start",         cmd_start))
+    app.add_handler(CommandHandler("help",          cmd_start))
+    app.add_handler(CommandHandler("event",         cmd_event))
+    app.add_handler(CommandHandler("events",        cmd_events_list))
+    app.add_handler(CommandHandler("clearevents",   cmd_clear_events))
+    app.add_handler(CommandHandler("weather",       cmd_weather))
+    app.add_handler(CommandHandler("question",      cmd_question))
+    app.add_handler(CommandHandler("topic",         cmd_topic))
+    app.add_handler(CommandHandler("report",        cmd_report))
+    app.add_handler(CommandHandler("resetstats",    cmd_reset))
+    app.add_handler(CommandHandler("gather",        cmd_gather))
+    app.add_handler(CommandHandler("tags",          cmd_tags_list))
+    app.add_handler(CommandHandler("profile",       cmd_profile))
+    app.add_handler(CommandHandler("profiles",      cmd_profiles_list))
+    app.add_handler(CommandHandler("autostart",     cmd_autostart))
+    app.add_handler(CommandHandler("lang",          cmd_lang))
+    app.add_handler(CommandHandler("addmember",     cmd_addmember))
+    app.add_handler(CommandHandler("removemember",  cmd_removemember))
+    app.add_handler(CommandHandler("listmembers",   cmd_listmembers))
     app.add_handler(CommandHandler("cleanupmembers", cmd_cleanup_members))
 
-    logger.info("Бот запущено!")
+    logger.info("Бот запущен!")
     app.run_polling()
 
 
