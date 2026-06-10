@@ -380,6 +380,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         import random as _r
         kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✏️ Как заполнить анкету",  callback_data="menu_myprofile")],
             [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
             [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
              InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
@@ -1266,6 +1267,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Например: о себе Привет! Я Пётр, 28 лет, люблю настолки и кофе ☕"
     )
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Как заполнить анкету",  callback_data="menu_myprofile")],
         [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
         [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
          InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
@@ -1281,6 +1283,22 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     action  = q.data.replace("menu_", "")
     chat_id = q.message.chat_id
+
+    if action == "myprofile":
+        await q.message.reply_text(
+            "✏️ *Как заполнить анкету*\n\n"
+            "Напиши в чат одно из следующих сообщений:\n\n"
+            "👤 *Основная информация:*\n"
+            "`о себе` Привет\\! Меня зовут Иван, 28 лет, из Киева, люблю настолки\n\n"
+            "📸 *Instagram:*\n"
+            "`мой инстаграм @твой_ник`\n\n"
+            "💼 *Место работы:*\n"
+            "`моя работа Название компании`\n\n"
+            "Каждое поле можно добавлять отдельно — они дополняют анкету, а не заменяют её\\.\n\n"
+            "Посмотреть свою анкету: /profile",
+            parse_mode="MarkdownV2"
+        )
+        return
 
     if action == "profiles":
         await _menu_profiles(q, context)
@@ -1715,7 +1733,20 @@ def main():
     if not TOKEN:
         raise ValueError("BOT_TOKEN не установлен!")
 
-    app = Application.builder().token(TOKEN).build()
+    async def post_init(application):
+        """Tell Telegram we want chat_member updates (needed for welcome messages in supergroups)."""
+        try:
+            await application.bot.set_my_commands([])  # keeps connection alive
+        except Exception:
+            pass
+        logger.info("Bot post_init done")
+
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
@@ -1756,7 +1787,9 @@ def main():
     app.add_handler(CommandHandler("testbot",       cmd_testbot))
 
     logger.info("Бот запущен!")
-    app.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
+    app.run_polling(
+        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
+    )
 
 
 if __name__ == "__main__":
