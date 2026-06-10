@@ -402,6 +402,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
         asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
         asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 120))
+        return
 
     # Анонимное сообщение
     if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
@@ -2051,9 +2052,9 @@ def main():
         .build()
     )
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=0)
     app.add_handler(MessageHandler(filters.COMMAND, auto_delete_command), group=2)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=1)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
     # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
     app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.CHAT_MEMBER))
