@@ -5,10 +5,10 @@ import pytz
 import aiohttp
 from datetime import datetime, time, timedelta, date
 from collections import defaultdict
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    ContextTypes, MessageHandler, filters,
+    ContextTypes, MessageHandler, filters, ChatMemberHandler,
 )
 import storage
 
@@ -473,26 +473,45 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if member.is_bot:
             continue
         storage.register_user(member)
-        name = member.first_name
-        try:
-            await context.bot.send_message(
-                chat_id,
-                f"👋 Добро пожаловать, {name}!\n\n"
-                f"Рад видеть тебя в нашей компании 🎉\n\n"
-                f"📋 *Заполни анкету* — напиши сообщение:\n"
-                f"_о себе_ и дальше расскажи кто ты, откуда, что любишь\n\n"
-                f"📸 Instagram: напиши _мой инстаграм @твой\\_ник_\n"
-                f"💼 Работа: напиши _моя работа Название компании_\n\n"
-                f"📌 *Правила группы:*\n"
-                f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
-                f"😊 Будь позитивным — токсичность тут не в моде\n"
-                f"🤝 Уважай других — мы все здесь ради хорошего времени\n"
-                f"🎉 Предлагай идеи — лучшая идея та, которую ты предложил\n\n"
-                f"Напиши *Петя* или /start чтобы увидеть что я умею 🤖",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"welcome_new_member error: {e}")
+        await _send_welcome(context.bot, chat_id, member.first_name)
+
+
+async def welcome_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles ChatMemberUpdated events — works in supergroups where service messages aren't sent."""
+    result: ChatMemberUpdated = update.chat_member
+    if not result:
+        return
+    old_status = result.old_chat_member.status
+    new_status = result.new_chat_member.status
+    member = result.new_chat_member.user
+    if member.is_bot:
+        return
+    # Joined: was not a member, now is
+    if old_status in ("left", "kicked", "banned") and new_status in ("member", "restricted", "administrator"):
+        storage.register_user(member)
+        await _send_welcome(context.bot, result.chat.id, member.first_name)
+
+
+async def _send_welcome(bot, chat_id: int, name: str):
+    try:
+        await bot.send_message(
+            chat_id,
+            f"👋 Добро пожаловать, {name}!\n\n"
+            f"Рад видеть тебя в нашей компании 🎉\n\n"
+            f"📋 *Заполни анкету* — напиши в чат:\n"
+            f"_о себе_ и дальше расскажи кто ты, откуда, что любишь\n\n"
+            f"📸 Инстаграм: _мой инстаграм @твой\\_ник_\n"
+            f"💼 Работа: _моя работа Название компании_\n\n"
+            f"📌 *Правила группы:*\n"
+            f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
+            f"😊 Будь позитивным — токсичность тут не в моде\n"
+            f"🤝 Уважай других — мы все здесь ради хорошего времени\n"
+            f"🎉 Предлагай идеи — лучшая идея та, которую ты предложил\n\n"
+            f"Напиши *Петя* или /start чтобы увидеть что я умею 🤖",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"welcome error for {name}: {e}")
 
 
 # ── Анкеты ────────────────────────────────────
@@ -1702,6 +1721,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
+    # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
+    app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.CHAT_MEMBER))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
@@ -1735,7 +1756,7 @@ def main():
     app.add_handler(CommandHandler("testbot",       cmd_testbot))
 
     logger.info("Бот запущен!")
-    app.run_polling()
+    app.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
 
 
 if __name__ == "__main__":
