@@ -300,7 +300,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = text[len(prefix):].strip(" :—-\n")
         if info:
             profiles = storage.load_profiles()
-            existing = profiles.get(user.id, {})
+            existing = profiles.get(user.id) or profiles.get(str(user.id)) or {}
+            profiles.pop(str(user.id), None)
             profiles[user.id] = {
                 "text": info,
                 "username": user.username or "",
@@ -323,10 +324,12 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         insta = text[len(prefix):].strip().lstrip("@")
         if insta:
             profiles = storage.load_profiles()
-            p = profiles.get(user.id, {"text": "", "username": user.username or "", "tg_name": user.first_name})
+            p = profiles.get(user.id) or profiles.get(str(user.id)) or {"text": "", "username": user.username or "", "tg_name": user.first_name}
             p["instagram"] = insta
             p["tg_name"] = user.first_name
             p["username"] = user.username or p.get("username", "")
+            # Save under consistent key
+            profiles.pop(str(user.id), None)
             profiles[user.id] = p
             storage.save_profiles(profiles)
             await update.message.reply_text(f"📸 Instagram сохранён: @{insta}")
@@ -338,10 +341,12 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         work_val = text[len(prefix):].strip()
         if work_val:
             profiles = storage.load_profiles()
-            p = profiles.get(user.id, {"text": "", "username": user.username or "", "tg_name": user.first_name})
+            p = profiles.get(user.id) or profiles.get(str(user.id)) or {"text": "", "username": user.username or "", "tg_name": user.first_name}
             p["work"] = work_val
             p["tg_name"] = user.first_name
             p["username"] = user.username or p.get("username", "")
+            # Save under consistent key
+            profiles.pop(str(user.id), None)
             profiles[user.id] = p
             storage.save_profiles(profiles)
             await update.message.reply_text(f"💼 Место работы сохранено: {work_val}")
@@ -461,26 +466,33 @@ async def ask_ai(question: str) -> str:
 # ── Приветствие новых участников ──────────────────────────────────────────────────
 
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.new_chat_members:
+        return
+    chat_id = update.effective_chat.id
     for member in update.message.new_chat_members:
         if member.is_bot:
             continue
         storage.register_user(member)
         name = member.first_name
-        await update.message.reply_text(
-            f"👋 Добро пожаловать, {name}!\n\n"
-            f"Рад видеть тебя в нашей компании 🎉\n\n"
-            f"📋 *Заполни анкету* — напиши сообщение:\n"
-            f"_о себе_ и дальше расскажи кто ты, откуда, что любишь\n\n"
-            f"📸 Instagram: _мой инстаграм @твой\\_ник_\n"
-            f"💼 Работа: _моя работа Название компании_\n\n"
-            f"📌 *Правила группы:*\n"
-            f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
-            f"😊 Будь позитивным — токсичность тут не в моде\n"
-            f"🤝 Уважай других — мы все здесь ради хорошего времени\n"
-            f"🎉 Предлагай идеи — лучшая идея та, которую ты предложил\n\n"
-            f"Напиши *Петя* или /start чтобы увидеть что я умею 🤖",
-            parse_mode="Markdown"
-        )
+        try:
+            await context.bot.send_message(
+                chat_id,
+                f"👋 Добро пожаловать, {name}!\n\n"
+                f"Рад видеть тебя в нашей компании 🎉\n\n"
+                f"📋 *Заполни анкету* — напиши сообщение:\n"
+                f"_о себе_ и дальше расскажи кто ты, откуда, что любишь\n\n"
+                f"📸 Instagram: напиши _мой инстаграм @твой\\_ник_\n"
+                f"💼 Работа: напиши _моя работа Название компании_\n\n"
+                f"📌 *Правила группы:*\n"
+                f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
+                f"😊 Будь позитивным — токсичность тут не в моде\n"
+                f"🤝 Уважай других — мы все здесь ради хорошего времени\n"
+                f"🎉 Предлагай идеи — лучшая идея та, которую ты предложил\n\n"
+                f"Напиши *Петя* или /start чтобы увидеть что я умею 🤖",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"welcome_new_member error: {e}")
 
 
 # ── Анкеты ────────────────────────────────────
@@ -505,7 +517,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if target_id is None:
         target_id = update.effective_user.id
 
-    p = profiles.get(int(target_id))
+    p = profiles.get(int(target_id)) or profiles.get(str(target_id))
     if not p:
         if int(target_id) == update.effective_user.id:
             await update.message.reply_text(
@@ -551,7 +563,7 @@ async def cb_show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     uid = int(q.data.replace("showprofile_", ""))
     profiles = storage.load_profiles()
-    p = profiles.get(uid)
+    p = profiles.get(uid) or profiles.get(str(uid))
     if not p:
         await q.answer("Анкета не найдена 😔", show_alert=True)
         return
@@ -776,10 +788,17 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         date_str = update.message.text.strip()
         # Validate format
         try:
-            datetime.strptime(date_str, "%d.%m.%Y")
+            parsed_date = datetime.strptime(date_str, "%d.%m.%Y").date()
         except ValueError:
             await update.message.reply_text(
                 "❌ Неверный формат даты. Введи в формате *дд.мм.гггг*, например: 25.06.2026",
+                parse_mode="Markdown"
+            )
+            return
+        today = datetime.now(KYIV_TZ).date()
+        if parsed_date < today:
+            await update.message.reply_text(
+                f"❌ Дата {date_str} уже прошла! Введи дату не раньше сегодняшнего дня ({today.strftime('%d.%m.%Y')}).",
                 parse_mode="Markdown"
             )
             return
@@ -812,6 +831,7 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "msg_id":       None,
         }
         context.bot_data.pop(key, None)
+        await update.message.reply_text("✅ Ивент успешно добавлен!")
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -833,6 +853,7 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "msg_id":       None,
         }
         context.bot_data.pop(key, None)
+        await update.message.reply_text("✅ Ивент успешно добавлен!")
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -938,10 +959,14 @@ async def _refresh_events_message(bot, chat_id):
         except Exception:
             pass
 
-    # Unpin old message if it exists
+    # Unpin and DELETE old message if it exists
     if msg_id:
         try:
             await bot.unpin_chat_message(chat_id, msg_id)
+        except Exception:
+            pass
+        try:
+            await bot.delete_message(chat_id, msg_id)
         except Exception:
             pass
     sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
@@ -989,7 +1014,7 @@ async def sched_cleanup_events(context: ContextTypes.DEFAULT_TYPE):
     await cleanup_past_events(context.bot, chat_id)
 
 
-async def _publish_event(bot, chat_id, ev):
+async def _publish_event(bot, chat_id, ev, notify_user_id=None):
     if chat_id not in _events:
         _events[chat_id] = []
     if not ev.get("created_at"):
