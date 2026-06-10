@@ -3,7 +3,7 @@ import logging
 import random
 import pytz
 import aiohttp
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, date
 from collections import defaultdict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -125,6 +125,28 @@ def EVENT_TYPES(chat_id=None):
 
 DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 DAY_EMOJI = ["📅","📅","📅","📅","🎉","🎉","😴"]
+MONTHS_RU = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"]
+
+def next_date_for_weekday(weekday_index: int) -> date:
+    """Return the next upcoming date for a given weekday (0=Mon ... 6=Sun)."""
+    today = datetime.now(KYIV_TZ).date()
+    days_ahead = (weekday_index - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    return today + timedelta(days=days_ahead)
+
+def day_label(weekday_index: int) -> str:
+    """e.g. 'Пт 13 июн'"""
+    d = next_date_for_weekday(weekday_index)
+    return f"{DAY_EMOJI[weekday_index]} {DAYS_RU[weekday_index]} {d.day} {MONTHS_RU[d.month-1]}"
+
+def custom_date_weekday_name(date_str: str) -> str:
+    """Convert dd.mm.yyyy string to weekday name."""
+    try:
+        d = datetime.strptime(date_str, "%d.%m.%Y")
+        return DAYS_RU[d.weekday()]
+    except Exception:
+        return ""
 
 def DAYS(chat_id=None):
     return DAYS_RU
@@ -278,7 +300,14 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = text[len(prefix):].strip(" :—-\n")
         if info:
             profiles = storage.load_profiles()
-            profiles[user.id] = {"text": info, "username": user.username or "", "tg_name": user.first_name}
+            existing = profiles.get(user.id, {})
+            profiles[user.id] = {
+                "text": info,
+                "username": user.username or "",
+                "tg_name": user.first_name,
+                "instagram": existing.get("instagram", ""),
+                "work": existing.get("work", ""),
+            }
             storage.save_profiles(profiles)
             await update.message.reply_text(
                 f"✅ Сохранено, {user.first_name}!\n\n{info}\n\nПосмотреть: /profile"
@@ -287,6 +316,36 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "📋 Напиши текст после «о себе», например:\nо себе Привет! Меня зовут Иван, 27 лет 🙂"
             )
+
+    # Instagram
+    if low.startswith("мой инстаграм ") or low.startswith("мій інстаграм "):
+        prefix = "мой инстаграм " if low.startswith("мой инстаграм ") else "мій інстаграм "
+        insta = text[len(prefix):].strip().lstrip("@")
+        if insta:
+            profiles = storage.load_profiles()
+            p = profiles.get(user.id, {"text": "", "username": user.username or "", "tg_name": user.first_name})
+            p["instagram"] = insta
+            p["tg_name"] = user.first_name
+            p["username"] = user.username or p.get("username", "")
+            profiles[user.id] = p
+            storage.save_profiles(profiles)
+            await update.message.reply_text(f"📸 Instagram сохранён: @{insta}")
+        return
+
+    # Work / місце роботи
+    if low.startswith("моя работа ") or low.startswith("моя робота "):
+        prefix = "моя работа " if low.startswith("моя работа ") else "моя робота "
+        work_val = text[len(prefix):].strip()
+        if work_val:
+            profiles = storage.load_profiles()
+            p = profiles.get(user.id, {"text": "", "username": user.username or "", "tg_name": user.first_name})
+            p["work"] = work_val
+            p["tg_name"] = user.first_name
+            p["username"] = user.username or p.get("username", "")
+            profiles[user.id] = p
+            storage.save_profiles(profiles)
+            await update.message.reply_text(f"💼 Место работы сохранено: {work_val}")
+        return
 
     # AI: если сообщение начинается с имени бота или триггеров
     petya_triggers = ("пєтя,", "петя,", "пєтя питання", "петя питання", "петро,", "петро питання", "ai,", "шт,")
@@ -412,6 +471,8 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"Рад видеть тебя в нашей компании 🎉\n\n"
             f"📋 *Заполни анкету* — напиши сообщение:\n"
             f"_о себе_ и дальше расскажи кто ты, откуда, что любишь\n\n"
+            f"📸 Instagram: _мой инстаграм @твой\\_ник_\n"
+            f"💼 Работа: _моя работа Название компании_\n\n"
             f"📌 *Правила группы:*\n"
             f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
             f"😊 Будь позитивным — токсичность тут не в моде\n"
@@ -455,8 +516,13 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     mention = f"@{he(p['username'])}" if p.get("username") else he(p["tg_name"])
+    extra = ""
+    if p.get("instagram"):
+        extra += f"\n📸 Instagram: @{he(p['instagram'])}"
+    if p.get("work"):
+        extra += f"\n💼 Работа: {he(p['work'])}"
     await update.message.reply_text(
-        f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}",
+        f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}{extra}",
         parse_mode="HTML"
     )
 
@@ -490,7 +556,12 @@ async def cb_show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("Анкета не найдена 😔", show_alert=True)
         return
     mention = f"@{he(p['username'])}" if p.get("username") else he(p["tg_name"])
-    await q.message.reply_text(f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}", parse_mode="HTML")
+    extra = ""
+    if p.get("instagram"):
+        extra += f"\n📸 Instagram: @{he(p['instagram'])}"
+    if p.get("work"):
+        extra += f"\n💼 Работа: {he(p['work'])}"
+    await q.message.reply_text(f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}{extra}", parse_mode="HTML")
 
 # ── Теги / Сбор ───────────────────────────────
 
@@ -583,7 +654,12 @@ async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def event_text(ev, chat_id=None):
     etype     = EVENT_TYPES_RU.get(ev["type"], ev["type"])
-    day_str   = f"{DAY_EMOJI[ev['day']]} {DAYS_RU[ev['day']]}"
+    if ev.get("custom_date"):
+        cd = ev["custom_date"]
+        wd_name = custom_date_weekday_name(cd)
+        day_str = f"📅 {wd_name} {cd}" if wd_name else f"📅 {cd}"
+    else:
+        day_str = day_label(ev["day"])
     yes_names = [n for n, v in ev["votes_named"].values() if v]
     no_names  = [n for n, v in ev["votes_named"].values() if not v]
     lines = [f"🎉 *Ивент от {ev['author']}*\n"]
@@ -656,7 +732,8 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     days_list = DAYS_RU
-    day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {days_list[i]}", callback_data=f"eday_{etype}_{i}")] for i in range(7)]
+    day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_{etype}_{i}")] for i in range(7)]
+    day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data=f"eday_custom_date_{etype}")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
     etype_label = EVENT_TYPES_RU.get(etype, etype)
     await q.edit_message_text(
@@ -665,12 +742,77 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(day_rows)
     )
 
+async def cb_eday_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User clicked 'Custom date' button — ask them to type the date."""
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split("_")  # eday_custom_date_etype
+    etype = parts[3]
+    key = f"ev_{q.from_user.id}_{q.message.chat_id}"
+    old = context.bot_data.get(key, {})
+    context.bot_data[key] = {
+        "type": etype,
+        "custom_title": old.get("custom_title"),
+        "author": q.from_user.first_name,
+        "author_id": q.from_user.id,
+        "awaiting": "custom_date",
+    }
+    await q.edit_message_text(
+        "📆 Введи дату в формате *дд.мм.гггг*\nНапример: 25.06.2026",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")]])
+    )
+
+
 async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     chat_id = update.effective_chat.id
     key     = f"ev_{user.id}_{chat_id}"
     pending = context.bot_data.get(key)
     if not pending:
+        return
+
+    if pending.get("awaiting") == "custom_date":
+        date_str = update.message.text.strip()
+        # Validate format
+        try:
+            datetime.strptime(date_str, "%d.%m.%Y")
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат даты. Введи в формате *дд.мм.гггг*, например: 25.06.2026",
+                parse_mode="Markdown"
+            )
+            return
+        pending["custom_date"] = date_str
+        pending.pop("awaiting")
+        pending["awaiting"] = "description_after_date"
+        await update.message.reply_text(
+            f"✏️ Дата {date_str} принята! Добавь описание к ивенту или нажми кнопку чтобы пропустить.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⏭ Пропустить", callback_data=f"eday_skip_date_{pending['type']}_{date_str.replace('.','_')}"),
+                InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel"),
+            ]])
+        )
+        return
+
+    if pending.get("awaiting") == "description_after_date":
+        pending.pop("awaiting")
+        pending["description"] = update.message.text
+        etype = pending["type"]
+        ev = {
+            "id":           next_event_id(),
+            "type":         etype,
+            "custom_title": pending.get("custom_title"),
+            "day":          0,
+            "custom_date":  pending.get("custom_date"),
+            "description":  pending.get("description"),
+            "author":       pending.get("author", user.first_name),
+            "author_id":    pending.get("author_id", user.id),
+            "votes_named":  {},
+            "msg_id":       None,
+        }
+        context.bot_data.pop(key, None)
+        await _publish_event(context.bot, chat_id, ev)
         return
 
     if pending.get("awaiting") == "description":
@@ -683,6 +825,7 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "type":         etype,
             "custom_title": pending.get("custom_title"),
             "day":          day,
+            "custom_date":  pending.get("custom_date"),
             "description":  pending.get("description"),
             "author":       pending.get("author", user.first_name),
             "author_id":    pending.get("author_id", user.id),
@@ -697,7 +840,8 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     pending["custom_title"] = update.message.text
     days_list2 = DAYS_RU
-    day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {days_list2[i]}", callback_data=f"eday_custom_{i}")] for i in range(7)]
+    day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_custom_{i}")] for i in range(7)]
+    day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data="eday_custom_date_custom")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
     await update.message.reply_text(
         f"📝 _{update.message.text}_\n\nКогда проводим?",
@@ -736,24 +880,42 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_eday_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
     await q.answer()
-    parts   = q.data.split("_")  # eday_skip_etype_day
-    etype   = parts[2]
-    day     = int(parts[3])
+    parts   = q.data.split("_")  # eday_skip_etype_day  OR  eday_skip_date_etype_dd_mm_yyyy
     key     = f"ev_{q.from_user.id}_{q.message.chat_id}"
     old     = context.bot_data.get(key, {})
     chat_id = q.message.chat_id
 
-    ev = {
-        "id":           next_event_id(),
-        "type":         etype,
-        "custom_title": old.get("custom_title"),
-        "day":          day,
-        "description":  None,
-        "author":       q.from_user.first_name,
-        "author_id":    q.from_user.id,
-        "votes_named":  {},
-        "msg_id":       None,
-    }
+    if parts[2] == "date":
+        # eday_skip_date_etype_dd_mm_yyyy
+        etype = parts[3]
+        date_str = f"{parts[4]}.{parts[5]}.{parts[6]}"
+        ev = {
+            "id":           next_event_id(),
+            "type":         etype,
+            "custom_title": old.get("custom_title"),
+            "day":          0,
+            "custom_date":  date_str,
+            "description":  None,
+            "author":       q.from_user.first_name,
+            "author_id":    q.from_user.id,
+            "votes_named":  {},
+            "msg_id":       None,
+        }
+    else:
+        etype   = parts[2]
+        day     = int(parts[3])
+        ev = {
+            "id":           next_event_id(),
+            "type":         etype,
+            "custom_title": old.get("custom_title"),
+            "day":          day,
+            "custom_date":  None,
+            "description":  None,
+            "author":       q.from_user.first_name,
+            "author_id":    q.from_user.id,
+            "votes_named":  {},
+            "msg_id":       None,
+        }
     context.bot_data.pop(key, None)
     await q.edit_message_text("✅ Ивент создан!")
     await _publish_event(context.bot, chat_id, ev)
@@ -776,6 +938,12 @@ async def _refresh_events_message(bot, chat_id):
         except Exception:
             pass
 
+    # Unpin old message if it exists
+    if msg_id:
+        try:
+            await bot.unpin_chat_message(chat_id, msg_id)
+        except Exception:
+            pass
     sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
     _events_msg[chat_id] = sent.message_id
     try:
@@ -783,9 +951,49 @@ async def _refresh_events_message(bot, chat_id):
     except Exception as e:
         logger.warning(f"Pin failed: {e}")
 
+def _is_event_past(ev) -> bool:
+    """Return True if the event's date has already passed."""
+    try:
+        if ev.get("custom_date"):
+            event_date = datetime.strptime(ev["custom_date"], "%d.%m.%Y").date()
+        else:
+            event_date = next_date_for_weekday(ev["day"])
+            # If day was already set and more than 7 days ago, it's past
+            # We store creation time to detect this; use a simpler heuristic:
+            # if created_at exists and event_date < today
+            if ev.get("created_at"):
+                created = datetime.fromisoformat(ev["created_at"]).date()
+                # If the next occurrence of that weekday from creation is in the past
+                days_from_creation = (ev["day"] - created.weekday()) % 7 or 7
+                event_date = created + timedelta(days=days_from_creation)
+            else:
+                return False  # no creation date, can't determine
+        today = datetime.now(KYIV_TZ).date()
+        return event_date < today
+    except Exception:
+        return False
+
+
+async def cleanup_past_events(bot, chat_id):
+    """Remove events whose date has passed and refresh the message."""
+    ev_list = _events.get(chat_id, [])
+    before = len(ev_list)
+    _events[chat_id] = [ev for ev in ev_list if not _is_event_past(ev)]
+    if len(_events[chat_id]) < before:
+        storage.save_events(_events)
+        await _refresh_events_message(bot, chat_id)
+
+
+async def sched_cleanup_events(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data["chat_id"]
+    await cleanup_past_events(context.bot, chat_id)
+
+
 async def _publish_event(bot, chat_id, ev):
     if chat_id not in _events:
         _events[chat_id] = []
+    if not ev.get("created_at"):
+        ev["created_at"] = datetime.now(KYIV_TZ).isoformat()
     _events[chat_id].append(ev)
     ev["msg_id"] = None
     storage.save_events(_events)
@@ -811,16 +1019,25 @@ async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("Ивент не найден 😔", show_alert=True)
         return
 
+    uid_str = str(user.id)
+    existing = ev["votes_named"].get(uid_str)
+
     if action == "change":
-        ev["votes_named"].pop(str(user.id), None)
+        ev["votes_named"].pop(uid_str, None)
         storage.save_events(_events)
         await q.answer("Голос убран, можешь проголосовать снова")
     elif action == "yes":
-        ev["votes_named"][str(user.id)] = [user.first_name, True]
+        if existing and existing[1] is True:
+            await q.answer("✅ Ты уже отметился как «Иду»!", show_alert=True)
+            return
+        ev["votes_named"][uid_str] = [user.first_name, True]
         storage.save_events(_events)
         await q.answer("✅ Отметился как «Иду»!")
     elif action == "no":
-        ev["votes_named"][str(user.id)] = [user.first_name, False]
+        if existing and existing[1] is False:
+            await q.answer("❌ Ты уже отметился как «Не иду»!", show_alert=True)
+            return
+        ev["votes_named"][uid_str] = [user.first_name, False]
         storage.save_events(_events)
         await q.answer("❌ Отметился как «Не иду».")
 
@@ -971,7 +1188,7 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     jq      = context.job_queue
     all_names = [str(chat_id), f"{chat_id}_weather", f"{chat_id}_friday",
                  f"{chat_id}_evening", f"{chat_id}_monday", f"{chat_id}_report",
-                 f"{chat_id}_news"]
+                 f"{chat_id}_news", f"{chat_id}_cleanup"]
     for name in all_names:
         for job in jq.get_jobs_by_name(name):
             job.schedule_removal()
@@ -983,6 +1200,7 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_monday,             time=time(10,0,tzinfo=KYIV_TZ),  days=(0,),            data={"chat_id":chat_id}, name=f"{chat_id}_monday")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
+    jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
 
     await update.message.reply_text(
         "✅ Автоматические сообщения включены!\n\n"
@@ -1358,6 +1576,91 @@ async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"👥 Участников: {len(tags)}"
         )
 
+async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: send all automatic messages at once, then delete after 10 sec."""
+    chat_id = update.effective_chat.id
+    try:
+        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if member.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Только для администраторов.")
+            return
+    except Exception:
+        pass
+
+    sent_msgs = []
+
+    # 1. Weather
+    data = await fetch_weather_full()
+    if data:
+        m = await context.bot.send_message(chat_id, "🧪 [ТЕСТ] Утренняя погода:\n\n" + build_weather_full(data), parse_mode="Markdown")
+        sent_msgs.append(m.message_id)
+
+    # 2. Morning news
+    import random as _r
+    news = _r.choice([
+        "📰 *Новость дня:* Учёные выяснили, что кофе с утра — это не зависимость, а стратегия выживания ☕",
+        "📰 *Новость дня:* Исследование показало: люди которые отвечают на сообщения сразу — редкий вид 🦄",
+        "📰 *Новость дня:* Эксперты подтвердили: понедельник существует, и с этим ничего не поделать 📅",
+    ])
+    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] {news}", parse_mode="Markdown")
+    sent_msgs.append(m.message_id)
+
+    # 3. Monday message
+    m = await context.bot.send_message(chat_id,
+        "🧪 [ТЕСТ] 📅 *Новая неделя!* Есть планы?\n\nПредложи ивент: /event  |  Посмотри: /events",
+        parse_mode="Markdown")
+    sent_msgs.append(m.message_id)
+
+    # 4. Friday message
+    m = await context.bot.send_message(chat_id,
+        "🧪 [ТЕСТ] 🎉 *Пятница!* Что на выходных?\n\nПредложи: /event  |  Посмотри: /events",
+        parse_mode="Markdown")
+    sent_msgs.append(m.message_id)
+
+    # 5. Evening poll (send as text since can't send poll and delete easily)
+    m = await context.bot.send_message(chat_id,
+        "🧪 [ТЕСТ] 🌙 Вечерний опрос: «Как прошёл ваш день?» (обычно это опрос)")
+    sent_msgs.append(m.message_id)
+
+    # 6. Weekly report
+    act_data = activity.get(chat_id, {})
+    if act_data:
+        srt = sorted(act_data.items(), key=lambda x: x[1]["count"], reverse=True)
+        total = sum(u["count"] for _, u in srt)
+        active_list = [(uid, u) for uid, u in srt if u["count"] > 0]
+        lines = [f"🧪 [ТЕСТ] 📈 Еженедельный отчёт (сообщений: {total})\n"]
+        for rank, (uid, u) in enumerate(active_list[:5], 1):
+            lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ.")
+        m = await context.bot.send_message(chat_id, "\n".join(lines))
+    else:
+        m = await context.bot.send_message(chat_id, "🧪 [ТЕСТ] 📈 Еженедельный отчёт: статистика пустая")
+    sent_msgs.append(m.message_id)
+
+    # 7. Random question
+    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] ❓ {_r.choice(RANDOM_QUESTIONS)}")
+    sent_msgs.append(m.message_id)
+
+    # 8. Discussion topic
+    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] {_r.choice(DISCUSSION_TOPICS)}", parse_mode="Markdown")
+    sent_msgs.append(m.message_id)
+
+    status_msg = await context.bot.send_message(chat_id, "✅ Все авто-сообщения отправлены! Удаляются через 10 секунд...")
+    sent_msgs.append(status_msg.message_id)
+
+    async def delete_test_msgs(ctx):
+        for mid in sent_msgs:
+            try:
+                await ctx.bot.delete_message(chat_id, mid)
+            except Exception:
+                pass
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+    context.job_queue.run_once(delete_test_msgs, when=10)
+
+
 async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🇷🇺 Бот работает на русском языке.")
 
@@ -1380,6 +1683,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_etype,       pattern=r"^etype_"))
     app.add_handler(CallbackQueryHandler(cb_eday,        pattern=r"^eday_\w+_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_eday_skip,   pattern=r"^eday_skip_"))
+    app.add_handler(CallbackQueryHandler(cb_eday_custom_date, pattern=r"^eday_custom_date_"))
     app.add_handler(CallbackQueryHandler(cb_ev_cancel,   pattern=r"^ev_cancel$"))
     app.add_handler(CallbackQueryHandler(cb_ev_vote,     pattern=r"^ev_(yes|no|change)_\d+$"))
 
@@ -1403,6 +1707,7 @@ def main():
     app.add_handler(CommandHandler("removemember",  cmd_removemember))
     app.add_handler(CommandHandler("listmembers",   cmd_listmembers))
     app.add_handler(CommandHandler("cleanupmembers", cmd_cleanup_members))
+    app.add_handler(CommandHandler("testbot",       cmd_testbot))
 
     logger.info("Бот запущен!")
     app.run_polling()
