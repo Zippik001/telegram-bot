@@ -34,6 +34,16 @@ def next_event_id():
 
 activity: dict = defaultdict(dict)
 
+# Мова чату: { chat_id: "uk" | "ru" }
+_lang: dict = {}
+
+def lang(chat_id) -> str:
+    return _lang.get(chat_id, "uk")
+
+def t(chat_id, uk_text: str, ru_text: str) -> str:
+    """Повертає текст потрібною мовою."""
+    return ru_text if lang(chat_id) == "ru" else uk_text
+
 
 RANDOM_QUESTIONS = [
     "🍑 Якби твої органи могли писати скарги на тебе — який орган подав би найтовщу папку і за що саме?",
@@ -94,7 +104,7 @@ DISCUSSION_TOPICS = [
     "🧲 *Тема:* Яка риса характеру притягує вас у людях як магніт — і чому це майже завжди погано закінчується?",
 ]
 
-EVENT_TYPES = {
+EVENT_TYPES_UK = {
     "boardgames": "🎲 Настільні ігри",
     "hike":       "🥾 Похід / прогулянка",
     "cafe":       "☕ Кафе / бар",
@@ -103,8 +113,28 @@ EVENT_TYPES = {
     "online":     "💻 Онлайн-вечір",
     "custom":     "✏️ Своя ідея",
 }
-DAYS      = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+EVENT_TYPES_RU = {
+    "boardgames": "🎲 Настольные игры",
+    "hike":       "🥾 Поход / прогулка",
+    "cafe":       "☕ Кафе / бар",
+    "cinema":     "🎬 Кино",
+    "quest":      "🎯 Квест / активность",
+    "online":     "💻 Онлайн-вечер",
+    "custom":     "✏️ Своя идея",
+}
+def EVENT_TYPES(chat_id=None):
+    if chat_id and lang(chat_id) == "ru":
+        return EVENT_TYPES_RU
+    return EVENT_TYPES_UK
+
+DAYS_UK   = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+DAYS_RU   = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 DAY_EMOJI = ["📅","📅","📅","📅","🎉","🎉","😴"]
+
+def DAYS(chat_id=None):
+    if chat_id and lang(chat_id) == "ru":
+        return DAYS_RU
+    return DAYS_UK
 
 # ── Погода ────────────────────────────────────
 
@@ -557,8 +587,8 @@ async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Івенти ────────────────────────────────────
 
 def event_text(ev):
-    etype     = EVENT_TYPES.get(ev["type"], ev["type"])
-    day_str   = f"{DAY_EMOJI[ev['day']]} {DAYS[ev['day']]}"
+    etype     = EVENT_TYPES().get(ev["type"], ev["type"])
+    day_str   = f"{DAY_EMOJI[ev['day']]} {DAYS()[ev['day']]}"
     yes_names = [n for n, v in ev["votes_named"].values() if v]
     no_names  = [n for n, v in ev["votes_named"].values() if not v]
     lines = [f"🎉 *Івент від {ev['author']}*\n"]
@@ -585,7 +615,7 @@ def event_kb(ev):
 
 async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
-            for key, label in EVENT_TYPES.items()]
+            for key, label in EVENT_TYPES().items()]
     await update.message.reply_text(
         "🎉 *Створити івент*\n\nОбери тип події:",
         parse_mode="Markdown",
@@ -606,7 +636,8 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {DAYS[i]}", callback_data=f"eday_{etype}_{i}")] for i in range(7)]
+    days_list = DAYS()
+    day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {days_list[i]}", callback_data=f"eday_{etype}_{i}")] for i in range(7)]
     day_rows.append([InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel")])
     await q.edit_message_text(
         f"*{EVENT_TYPES[etype]}*\n\nКоли проводимо?",
@@ -647,7 +678,8 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if pending.get("type") != "custom":
         return
     pending["custom_title"] = update.message.text
-    day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {DAYS[i]}", callback_data=f"eday_custom_{i}")] for i in range(7)]
+    days_list2 = DAYS()
+    day_rows = [[InlineKeyboardButton(f"{DAY_EMOJI[i]} {days_list2[i]}", callback_data=f"eday_custom_{i}")] for i in range(7)]
     day_rows.append([InlineKeyboardButton("❌ Скасувати", callback_data="ev_cancel")])
     await update.message.reply_text(
         f"📝 _{update.message.text}_\n\nКоли проводимо?",
@@ -684,18 +716,39 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def _publish_event(bot, chat_id, ev):
-    """Публікує картку івенту і закріплює."""
-    if chat_id not in _events:
-        _events[chat_id] = []
-    _events[chat_id].append(ev)
-    sent = await bot.send_message(chat_id, event_text(ev), reply_markup=event_kb(ev))
-    ev["msg_id"] = sent.message_id
-    storage.save_events(_events)
+# Зберігаємо message_id спільного повідомлення: { chat_id: message_id }
+_events_msg: dict = {}
+
+async def _refresh_events_message(bot, chat_id):
+    """Оновлює або створює спільне повідомлення з усіма івентами."""
+    ev_list = _events.get(chat_id, [])
+    text = all_events_text(ev_list, chat_id)
+    kb   = all_events_kb(ev_list, chat_id)
+
+    msg_id = _events_msg.get(chat_id)
+    if msg_id:
+        try:
+            await bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass  # Якщо не вдалось редагувати — створимо нове
+
+    # Створюємо нове повідомлення
+    sent = await bot.send_message(chat_id, text, reply_markup=kb)
+    _events_msg[chat_id] = sent.message_id
     try:
         await bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
     except Exception as e:
         logger.warning(f"Pin failed: {e}")
+
+async def _publish_event(bot, chat_id, ev):
+    """Додає івент і оновлює спільне повідомлення."""
+    if chat_id not in _events:
+        _events[chat_id] = []
+    _events[chat_id].append(ev)
+    ev["msg_id"] = None
+    storage.save_events(_events)
+    await _refresh_events_message(bot, chat_id)
 
 
 async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -714,29 +767,37 @@ async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ev = next((e for e in _events.get(chat_id, []) if e["id"] == eid), None)
     if not ev:
-        await q.answer("Івент не знайдено 😔", show_alert=True)
+        await q.answer("Ивент не найден 😔" if lang(chat_id) == "ru" else "Івент не знайдено 😔", show_alert=True)
         return
 
-    ev["votes_named"][str(user.id)] = [user.first_name, action == "yes"]
-    storage.save_events(_events)
+    if action == "change":
+        # Видалити голос
+        ev["votes_named"].pop(str(user.id), None)
+        storage.save_events(_events)
+        await q.answer(
+            "Голос убран, можешь проголосовать снова" if lang(chat_id) == "ru"
+            else "Голос скасовано, можеш проголосувати знову"
+        )
+    else:
+        ev["votes_named"][str(user.id)] = [user.first_name, True]
+        storage.save_events(_events)
+        await q.answer(
+            "✅ Отметился как «Иду»!" if lang(chat_id) == "ru"
+            else "✅ Відмітився як «Йду»!"
+        )
 
-    vote_text = "✅ Відмітився як «Йду»!" if action == "yes" else "❌ Відмітився як «Не йду»"
-    await q.answer(vote_text)
-
-    try:
-        await q.edit_message_text(event_text(ev), reply_markup=event_kb(ev))
-    except Exception:
-        pass
+    await _refresh_events_message(context.bot, chat_id)
 
 async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     ev_list = _events.get(chat_id, [])
     if not ev_list:
-        await update.message.reply_text("📭 Немає активних івентів.\n\nЗапропонуй: /event")
+        await update.message.reply_text(
+            t(chat_id, "📭 Немає активних івентів.\n\nЗапропонуй: /event",
+                       "📭 Нет активных ивентов.\n\nПредложи: /event")
+        )
         return
-    await update.message.reply_text(f"📋 *Активні івенти ({len(ev_list)}):*", parse_mode="Markdown")
-    for ev in ev_list:
-        await update.message.reply_text(event_text(ev), parse_mode="Markdown", reply_markup=event_kb(ev))
+    await _refresh_events_message(context.bot, chat_id)
 
 async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -933,7 +994,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "event":
         rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
-                for key, label in EVENT_TYPES.items()]
+                for key, label in EVENT_TYPES().items()]
         await q.message.reply_text(
             "🎉 Створити івент\n\nОбери тип події:",
             reply_markup=InlineKeyboardMarkup(rows)
@@ -1348,6 +1409,26 @@ async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"👥 Учасників: {len(tags)}"
         )
 
+async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вибір мови: /lang uk або /lang ru"""
+    chat_id = update.effective_chat.id
+    args = context.args
+    if not args or args[0] not in ("uk", "ru"):
+        current = _lang.get(chat_id, "uk")
+        await update.message.reply_text(
+            f"🌐 Поточна мова / Текущий язык: {'🇺🇦 Українська' if current == 'uk' else '🇷🇺 Русский'}\n\n"
+            "Змінити / Изменить:\n"
+            "/lang uk — Українська 🇺🇦\n"
+            "/lang ru — Русский 🇷🇺"
+        )
+        return
+    _lang[chat_id] = args[0]
+    if args[0] == "ru":
+        await update.message.reply_text("🇷🇺 Язык изменён на русский!")
+    else:
+        await update.message.reply_text("🇺🇦 Мову змінено на українську!")
+
+
 def main():
     import os
     TOKEN = os.environ.get("BOT_TOKEN")
@@ -1366,7 +1447,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_etype,     pattern=r"^etype_"))
     app.add_handler(CallbackQueryHandler(cb_eday,      pattern=r"^eday_"))
     app.add_handler(CallbackQueryHandler(cb_ev_cancel, pattern=r"^ev_cancel$"))
-    app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no)_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_vote,   pattern=r"^ev_(yes|no|change)_\d+$"))
 
     app.add_handler(CommandHandler("start",       cmd_start))
     app.add_handler(CommandHandler("help",        cmd_start))
@@ -1383,6 +1464,7 @@ def main():
     app.add_handler(CommandHandler("profile",     cmd_profile))
     app.add_handler(CommandHandler("profiles",    cmd_profiles_list))
     app.add_handler(CommandHandler("autostart",   cmd_autostart))
+    app.add_handler(CommandHandler("lang", cmd_lang))
     app.add_handler(CommandHandler("addmember",   cmd_addmember))
     app.add_handler(CommandHandler("removemember", cmd_removemember))
     app.add_handler(CommandHandler("listmembers", cmd_listmembers))
