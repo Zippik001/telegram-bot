@@ -465,17 +465,6 @@ async def ask_ai(question: str) -> str:
 
 # ── Приветствие новых участников ──────────────────────────────────────────────────
 
-async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.new_chat_members:
-        return
-    chat_id = update.effective_chat.id
-    for member in update.message.new_chat_members:
-        if member.is_bot:
-            continue
-        storage.register_user(member)
-        await _send_welcome(context.bot, chat_id, member.first_name)
-
-
 async def welcome_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles ChatMemberUpdated events — works in supergroups where service messages aren't sent."""
     result: ChatMemberUpdated = update.chat_member or update.my_chat_member
@@ -516,6 +505,15 @@ async def _send_welcome(bot, chat_id: int, name: str):
     except Exception as e:
         logger.error(f"welcome error for {name}: {e}")
 
+
+
+async def _is_admin(bot, chat_id: int, user_id: int) -> bool:
+    """Return True if user is admin or creator in the chat."""
+    try:
+        m = await bot.get_chat_member(chat_id, user_id)
+        return m.status in ("administrator", "creator")
+    except Exception:
+        return False
 
 # ── Анкеты ────────────────────────────────────
 
@@ -640,14 +638,9 @@ async def _get_active_members(bot, chat_id: int) -> list[dict]:
 async def cmd_gather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    # Только для администраторов
-    try:
-        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только администраторы могут использовать эту команду.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id):
+        await update.message.reply_text("❌ Только администраторы могут использовать эту команду.")
+        return
 
     msg = await update.message.reply_text("⏳ Собираю список участников...")
     members = await _get_active_members(context.bot, chat_id)
@@ -1493,13 +1486,9 @@ async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    try:
-        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только администраторы могут добавлять участников.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id):
+        await update.message.reply_text("❌ Только администраторы могут добавлять участников.")
+        return
 
     tags = storage.load_tags()
     added = []
@@ -1557,13 +1546,9 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    try:
-        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только администраторы могут удалять участников.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id):
+        await update.message.reply_text("❌ Только администраторы могут удалять участников.")
+        return
 
     tags = storage.load_tags()
     removed = []
@@ -1622,13 +1607,9 @@ async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    try:
-        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if m.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только администраторы.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id):
+        await update.message.reply_text("❌ Только администраторы.")
+        return
 
     msg = await update.message.reply_text("⏳ Проверяю участников...")
 
@@ -1670,13 +1651,9 @@ async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: send all automatic messages at once, then delete after 10 sec."""
     chat_id = update.effective_chat.id
-    try:
-        member = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if member.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только для администраторов.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id):
+        await update.message.reply_text("❌ Только для администраторов.")
+        return
 
     sent_msgs = []
 
@@ -1779,11 +1756,9 @@ def main():
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
     # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
     app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.CHAT_MEMBER))
-    app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
