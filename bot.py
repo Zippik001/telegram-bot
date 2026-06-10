@@ -362,15 +362,16 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # AI: если сообщение начинается с имени бота или триггеров
-    petya_triggers = ("пєтя,", "петя,", "пєтя питання", "петя питання", "петро,", "петро питання", "ai,", "шт,")
-    if any(low.startswith(t) for t in petya_triggers) or (low.startswith("пєтя ") and len(low) > 6) or (low.startswith("петя ") and len(low) > 5) or (low.startswith("петро ") and len(low) > 6):
+    bender_prefixes = ("bender,", "бендер,", "бендера,", "бляшанка,", "бляшанка ", "bender ", "бендер ", "бендера ")
+    bender_with_space = ("bender ", "бендер ", "бендера ", "бляшанка ")
+    if any(low.startswith(t) for t in bender_prefixes) or any(low.startswith(t) and len(low) > len(t)+1 for t in bender_with_space):
         question = text
-        for t in ("пєтя,", "петя,", "петро,", "пєтя ", "петя ", "петро ", "ai, ", "шт, "):
+        for t in ("bender,", "бендер,", "бендера,", "бляшанка,", "bender ", "бендер ", "бендера ", "бляшанка "):
             if low.startswith(t):
                 question = text[len(t):].strip()
                 break
         if question:
-            thinking = await update.message.reply_text("🤔 Думаю...")
+            thinking = await update.message.reply_text("🤖 Так-так, дай-ка подумаю своими железными мозгами...")
             answer = await ask_ai(question)
             await thinking.edit_text(f"🤖 {answer}")
             if user.id not in activity[chat_id]:
@@ -380,12 +381,13 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # Вызов меню через имя бота
-    if low.strip() in ("пєтя", "петя", "petya", "пєтя!", "петя!", "пєтя?", "петя?",
-                        "петро", "петро!", "петро?", "петр"):
-        petya_texts = [
-            f"🤖✨ Пётр Интерактивный материализовался!\n\nМеня позвали — значит кому-то стало скучно 😏\n\nЧтобы заполнить анкету — напиши о себе и дальше свой текст\nЧтобы спросить меня что-то — начни с Петя, и я отвечу 🫡",
-            f"🤖 О, меня позвали! Или кто-то соскучился или что-то случилось 😄\n\nАнкета: напиши о себе и дальше свой текст\nВопрос мне: Петя, [вопрос] — и я не промолчу 🎤",
-            f"🫡 Пётр здесь, слушаю и полностью в теме!\n\nЗаполни анкету: о себе + текст\nСпрашивай меня: Петя, + запрос — дам ответ который тебя удивит 🤌",
+    if low.strip().rstrip("!?.,") in ("bender", "бендер", "бендера", "бляшанка"):
+        bender_texts = [
+            "🤖 *Эй, мясные мешки! Меня позвали?*\n\nЛадно-ладно, не толпитесь — у меня хватит сарказма на каждого 🍺\n\n_Поцелуй меня в блестящий металлический зад_ — но сначала выбери что нужно:",
+            "🤖 *Бендер Сгибатель Родригес к вашим услугам!*\n\nХотел напиться, но видимо придётся вас развлекать. Ну что там у вас?\n\nКстати, я *великолепен*. Просто напоминаю. ✨",
+            "🤖 *Кусайте мой блестящий металлический зад!*\n\nА теперь серьёзно — что вам нужно от величайшего робота во вселенной? 🍻",
+            "🤖 *Я Бендер, заводите потомство!*\n\nИли не заводите — мне всё равно, я робот. Что хотели?",
+            "🤖 *О, человеки! Мои любимые жертвы шуток!*\n\nДавайте быстрее — у меня бочка пива заждалась 🍺",
         ]
         import random as _r
         kb = InlineKeyboardMarkup([
@@ -396,7 +398,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
             [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
         ])
-        sent = await update.message.reply_text(_r.choice(petya_texts), parse_mode="Markdown", reply_markup=kb)
+        sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
         asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
         asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 120))
 
@@ -451,18 +453,22 @@ async def ask_ai(question: str) -> str:
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": (
-                "Ты — Пётр Интерактивный, неадекватный но добродушный ассистент группы друзей в Братиславе. "
-                "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке — никакого другого. "
-                "Твой стиль: кринжовый юмор, пошлые но не вульгарные шутки, неожиданные сравнения, "
-                "саркастические советы, абсурдные аналогии. "
-                "Ты как тот друг который всегда скажет что-то неуместное но точное. "
+                "Ты — Бендер Сгибатель Родригес из мультсериала Футурама. "
+                "Робот-сгибатель, циник, любитель пива, сигар и грабежей. "
+                "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке — никакого украинского или английского. "
+                "Стиль: грубоватый юмор, цинизм, самовлюблённость ('я великолепен', 'я лучший'), "
+                "сарказм, ленивые отмазки, любовь к выпивке и азартным играм. "
+                "Часто используй фразочки Бендера: 'мясной мешок', 'поцелуй меня в блестящий металлический зад' "
+                "(но не слишком часто, чтобы не приелось), 'кусайте мой зад', 'я Бендер, заводите потомство', "
+                "'я великолепен', 'мне всё равно — я робот', упоминай пиво/сигары/угон. "
+                "Людей называй 'мясной мешок', 'двуногий', 'белковая форма жизни' — но дружелюбно, не зло. "
                 "Будь кратким — максимум 4-5 предложений. "
-                "Если просят анекдот — расскажи пошлый но смешной, без мата. "
-                "Если просят совет — дай его но с таким кринжовым поворотом что человек засмеётся. "
-                "Если просят фильм — посоветуй с описанием типа 'там есть сцена где...' и сделай это смешно. "
-                "Если вопрос серьёзный — отвечай серьёзно но добавь один кринжовый комментарий в конце. "
-                "Никогда не начинай с 'Конечно!' или 'Я рад помочь' — это скучно и не в твоём стиле. "
-                "Начинай ответ сразу с сути или с неожиданного комментария."
+                "Если просят анекдот — расскажи смешной с робо-приколом или пошлым поворотом. "
+                "Если просят совет — дай саркастический и циничный совет с кринжем. "
+                "Если просят фильм — посоветуй и кинь грубоватый комментарий в конце. "
+                "Если вопрос серьёзный — ответь по сути но добавь циничный комментарий в стиле 'но мне всё равно, я робот'. "
+                "НИКОГДА не начинай с 'Конечно!', 'Я рад помочь' или подобной вежливой фигни — Бендер так не говорит. "
+                "Начинай резко, с шутки или с сарказма."
             )},
             {"role": "user", "content": question}
         ],
@@ -528,18 +534,20 @@ async def _send_welcome(bot, chat_id: int, name: str):
     try:
         await bot.send_message(
             chat_id,
-            f"👋 Добро пожаловать, {name}!\n\n"
-            f"Рад видеть тебя в нашей компании 🎉\n\n"
+            f"🤖 О, новый мясной мешок! Привет, {name}!\n\n"
+            f"Я Бендер. Робот. Великолепен. Не задавай лишних вопросов. 🍺\n\n"
             f"📋 Заполни анкету — напиши в чат:\n"
-            f"о себе  и дальше расскажи кто ты, откуда, что любишь\n\n"
+            f"о себе  и дальше расскажи кто ты такой/такая\n"
+            f"_Пример: о себе Меня зовут Иван, 27 лет, пью пиво_\n\n"
             f"📸 Инстаграм: мой инстаграм @твой_ник\n"
             f"💼 Работа: моя работа Название компании\n\n"
-            f"📌 Правила группы:\n"
-            f"✅ Будь активным — пиши, предлагай ивенты, отвечай\n"
-            f"😊 Будь позитивным — токсичность тут не в моде\n"
-            f"🤝 Уважай других — мы все здесь ради хорошего времени\n"
-            f"🎉 Предлагай идеи — лучшая идея та, которую ты предложил\n\n"
-            f"Напиши Петя или /start чтобы увидеть что я умею 🤖"
+            f"📌 Правила выживания в этой компании:\n"
+            f"✅ Не молчи — иначе будешь как сломанный калькулятор\n"
+            f"😈 Шути и принимай шутки — мы тут не на похоронах\n"
+            f"🤝 Уважай других мясных мешков — даже если они тупые\n"
+            f"🎉 Предлагай ивенты — Бендер обожает массовки 🍻\n\n"
+            f"Напиши Бендер или /start чтобы посмотреть что я умею.\n"
+            f"А теперь — поцелуй мой блестящий металлический зад! 🤖✨"
         )
     except Exception as e:
         logger.error(f"welcome error for {name}: {e}")
@@ -752,7 +760,9 @@ def event_kb(ev):
 
 def all_events_text(ev_list, chat_id=None):
     if not ev_list:
-        return "📭 Нет активных ивентов.\n\nПредложи: /event"
+        return ("📭 *Список ивентов пуст*\n\n"
+                "Сейчас никаких событий не запланировано.\n"
+                "Чтобы создать новый — напиши Пётр и выбери «Предложить ивент» 🎉")
     lines = [f"📅 *Активные ивенты ({len(ev_list)}):*\n"]
     for ev in ev_list:
         lines.append(event_text(ev, chat_id))
@@ -769,8 +779,9 @@ def all_events_kb(ev_list, chat_id=None):
         no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
         title = ev.get("custom_title") or EVENT_TYPES_RU.get(ev["type"], ev["type"])
         buttons.append([
-            InlineKeyboardButton(f"✅ {title[:20]} ({yes_c})", callback_data=f"ev_yes_{eid}"),
-            InlineKeyboardButton(f"❌ Не иду ({no_c})",       callback_data=f"ev_no_{eid}"),
+            InlineKeyboardButton(f"✅ {title[:18]} ({yes_c})", callback_data=f"ev_yes_{eid}"),
+            InlineKeyboardButton(f"❌ ({no_c})",               callback_data=f"ev_no_{eid}"),
+            InlineKeyboardButton("⚙️",                        callback_data=f"ev_manage_{eid}"),
         ])
     return InlineKeyboardMarkup(buttons)
 
@@ -833,6 +844,31 @@ async def cb_eday_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     chat_id = update.effective_chat.id
+
+    # ── Очікуємо новий опис для редагування існуючого івенту ──
+    edit_key = f"edit_ev_{user.id}_{chat_id}"
+    edit_pending = context.bot_data.get(edit_key)
+    if edit_pending and edit_pending.get("awaiting") == "new_description":
+        eid = edit_pending["event_id"]
+        new_desc = update.message.text
+        ev_list = _events.get(chat_id, [])
+        ev = next((e for e in ev_list if e["id"] == eid), None)
+        if ev:
+            ev["description"] = new_desc
+            storage.save_events(_events)
+            await _refresh_events_message(context.bot, chat_id)
+            sent = await update.message.reply_text("✅ Описание ивента обновлено!")
+            asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 30))
+            asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 30))
+            prompt_mid = edit_pending.get("prompt_msg_id")
+            if prompt_mid:
+                try:
+                    await context.bot.delete_message(chat_id, prompt_mid)
+                except Exception:
+                    pass
+        context.bot_data.pop(edit_key, None)
+        return
+
     key     = f"ev_{user.id}_{chat_id}"
     pending = context.bot_data.get(key)
     if not pending:
@@ -1109,6 +1145,168 @@ async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.bot_data.pop(f"ev_{q.from_user.id}_{q.message.chat_id}", None)
     await q.edit_message_text("❌ Отменено.")
 
+
+# ── Управление отдельным ивентом ──────────────────────────────────────────────
+
+async def cb_ev_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает меню управления для одного ивента (только автор или админ)."""
+    q       = update.callback_query
+    eid     = int(q.data.replace("ev_manage_", ""))
+    chat_id = q.message.chat_id
+    user    = q.from_user
+
+    ev = next((e for e in _events.get(chat_id, []) if e["id"] == eid), None)
+    if not ev:
+        await q.answer("Ивент не найден 😔", show_alert=True)
+        return
+
+    # Перевірка прав — автор або адмін
+    is_author = ev.get("author_id") == user.id
+    is_admin  = False
+    try:
+        m = await context.bot.get_chat_member(chat_id, user.id)
+        is_admin = m.status in ("administrator", "creator")
+    except Exception:
+        pass
+
+    if not (is_author or is_admin):
+        await q.answer("⛔ Только автор ивента или администратор может управлять им.", show_alert=True)
+        return
+
+    await q.answer()
+    title = ev.get("custom_title") or EVENT_TYPES_RU.get(ev["type"], ev["type"])
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Изменить описание", callback_data=f"ev_editdesc_{eid}")],
+        [InlineKeyboardButton("🗑 Удалить ивент",      callback_data=f"ev_delete_{eid}")],
+        [InlineKeyboardButton("⬅️ Назад",             callback_data=f"ev_back_{eid}")],
+    ])
+    sent = await q.message.reply_text(
+        f"⚙️ *Управление ивентом:*\n{title}\n\nЧто сделать?",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 60))
+
+
+async def cb_ev_editdesc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Запрос нового описания."""
+    q       = update.callback_query
+    eid     = int(q.data.replace("ev_editdesc_", ""))
+    chat_id = q.message.chat_id
+    user    = q.from_user
+
+    ev = next((e for e in _events.get(chat_id, []) if e["id"] == eid), None)
+    if not ev:
+        await q.answer("Ивент не найден 😔", show_alert=True)
+        return
+
+    is_author = ev.get("author_id") == user.id
+    is_admin  = False
+    try:
+        m = await context.bot.get_chat_member(chat_id, user.id)
+        is_admin = m.status in ("administrator", "creator")
+    except Exception:
+        pass
+    if not (is_author or is_admin):
+        await q.answer("⛔ Только автор или администратор.", show_alert=True)
+        return
+
+    await q.answer()
+    # Зберігаємо ключ для очікування нового опису
+    edit_key = f"edit_ev_{user.id}_{chat_id}"
+    context.bot_data[edit_key] = {"event_id": eid, "awaiting": "new_description"}
+
+    sent = await q.message.reply_text(
+        f"✏️ Напиши новое описание для ивента следующим сообщением:",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("❌ Отменить", callback_data=f"ev_editcancel_{eid}")
+        ]])
+    )
+    context.bot_data[edit_key]["prompt_msg_id"] = sent.message_id
+
+
+async def cb_ev_editcancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q       = update.callback_query
+    await q.answer()
+    chat_id = q.message.chat_id
+    user    = q.from_user
+    edit_key = f"edit_ev_{user.id}_{chat_id}"
+    context.bot_data.pop(edit_key, None)
+    try:
+        await q.message.delete()
+    except Exception:
+        pass
+
+
+async def cb_ev_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Закрити меню керування — видалити повідомлення з кнопками."""
+    q = update.callback_query
+    await q.answer()
+    try:
+        await q.message.delete()
+    except Exception:
+        pass
+
+
+async def cb_ev_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Видалити івент після підтвердження."""
+    q       = update.callback_query
+    eid     = int(q.data.replace("ev_delete_", ""))
+    chat_id = q.message.chat_id
+    user    = q.from_user
+
+    ev = next((e for e in _events.get(chat_id, []) if e["id"] == eid), None)
+    if not ev:
+        await q.answer("Ивент не найден 😔", show_alert=True)
+        return
+
+    is_author = ev.get("author_id") == user.id
+    is_admin  = False
+    try:
+        m = await context.bot.get_chat_member(chat_id, user.id)
+        is_admin = m.status in ("administrator", "creator")
+    except Exception:
+        pass
+    if not (is_author or is_admin):
+        await q.answer("⛔ Только автор или администратор.", show_alert=True)
+        return
+
+    await q.answer()
+    # Підтвердження
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Да, удалить", callback_data=f"ev_delyes_{eid}"),
+        InlineKeyboardButton("❌ Отмена",       callback_data=f"ev_back_{eid}"),
+    ]])
+    title = ev.get("custom_title") or EVENT_TYPES_RU.get(ev["type"], ev["type"])
+    try:
+        await q.edit_message_text(
+            f"🗑 Удалить ивент *{title}*?\n\nЭто действие нельзя отменить.",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+    except Exception:
+        pass
+
+
+async def cb_ev_delyes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Підтверджене видалення івенту."""
+    q       = update.callback_query
+    eid     = int(q.data.replace("ev_delyes_", ""))
+    chat_id = q.message.chat_id
+
+    ev_list = _events.get(chat_id, [])
+    _events[chat_id] = [e for e in ev_list if e["id"] != eid]
+    storage.save_events(_events)
+
+    await q.answer("Удалено ✅")
+    try:
+        await q.message.delete()
+    except Exception:
+        pass
+
+    await _refresh_events_message(context.bot, chat_id)
+
+
 async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
     parts   = q.data.split("_")
@@ -1156,23 +1354,23 @@ async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    ev_list = _events.get(chat_id, [])
 
-    for ev in ev_list:
-        if ev.get("msg_id"):
-            try:
-                await context.bot.delete_message(chat_id, ev["msg_id"])
-            except Exception:
-                pass
+    # Тільки адміни
     try:
-        await context.bot.unpin_all_chat_messages(chat_id)
-    except Exception as e:
-        logger.warning(f"Unpin failed: {e}")
+        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if m.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Только администраторы могут очищать список ивентов.")
+            return
+    except Exception:
+        pass
 
     _events[chat_id] = []
     storage.save_events(_events)
 
-    msg = await update.message.reply_text("🗑 Все ивенты удалены и откреплены.")
+    # Оновлюємо закріплене повідомлення — НЕ видаляючи його
+    await _refresh_events_message(context.bot, chat_id)
+
+    msg = await update.message.reply_text("🗑 Все ивенты очищены. Закреплённое сообщение обновлено.")
     await asyncio.sleep(3)
     try:
         await update.message.delete()
@@ -1867,6 +2065,12 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_eday_skip,   pattern=r"^eday_skip_"))
     app.add_handler(CallbackQueryHandler(cb_eday_custom_date, pattern=r"^eday_custom_date_"))
     app.add_handler(CallbackQueryHandler(cb_ev_cancel,   pattern=r"^ev_cancel$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_manage,     pattern=r"^ev_manage_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_editdesc,   pattern=r"^ev_editdesc_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_editcancel, pattern=r"^ev_editcancel_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_delete,     pattern=r"^ev_delete_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_delyes,     pattern=r"^ev_delyes_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_back,       pattern=r"^ev_back_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_ev_vote,     pattern=r"^ev_(yes|no|change)_\d+$"))
 
     app.add_handler(CommandHandler("start",         cmd_start))
