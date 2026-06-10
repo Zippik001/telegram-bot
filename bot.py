@@ -115,7 +115,7 @@ EVENT_TYPES_RU = {
     "hike":       "🥾 Поход / прогулка",
     "cafe":       "☕ Кафе / бар",
     "cinema":     "🎬 Кино",
-    "quest":      "🎯 Квест / активность",
+    "sport":      "🏋️ Занятие спортом",
     "online":     "💻 Онлайн-вечер",
     "custom":     "✏️ Своя идея",
 }
@@ -380,7 +380,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         import random as _r
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✏️ Как заполнить анкету",  callback_data="menu_myprofile")],
             [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
             [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
              InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
@@ -479,7 +478,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def welcome_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles ChatMemberUpdated events — works in supergroups where service messages aren't sent."""
-    result: ChatMemberUpdated = update.chat_member
+    result: ChatMemberUpdated = update.chat_member or update.my_chat_member
     if not result:
         return
     old_status = result.old_chat_member.status
@@ -487,8 +486,12 @@ async def welcome_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE
     member = result.new_chat_member.user
     if member.is_bot:
         return
-    # Joined: was not a member, now is
-    if old_status in ("left", "kicked", "banned") and new_status in ("member", "restricted", "administrator"):
+    # Joined: was not a member, now is a full/restricted/admin member
+    joined = (
+        old_status in ("left", "kicked", "banned", "unknown")
+        and new_status in ("member", "restricted", "administrator", "creator")
+    )
+    if joined:
         storage.register_user(member)
         await _send_welcome(context.bot, result.chat.id, member.first_name)
 
@@ -825,13 +828,13 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         pending["custom_date"] = date_str
         pending.pop("awaiting")
         pending["awaiting"] = "description_after_date"
-        await update.message.reply_text(
-            f"✏️ Дата {date_str} принята! Добавь описание к ивенту или нажми кнопку чтобы пропустить.",
+        sent = await update.message.reply_text(
+            f"✏️ Дата {date_str} принята! Добавь описание к ивенту.",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⏭ Пропустить", callback_data=f"eday_skip_date_{pending['type']}_{date_str.replace('.','_')}"),
                 InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel"),
             ]])
         )
+        pending["prompt_msg_id"] = sent.message_id
         return
 
     if pending.get("awaiting") == "description_after_date":
@@ -851,6 +854,13 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "msg_id":       None,
         }
         context.bot_data.pop(key, None)
+        # Delete the bot's "add description" prompt message if stored
+        prompt_mid = pending.get("prompt_msg_id")
+        if prompt_mid:
+            try:
+                await context.bot.delete_message(chat_id, prompt_mid)
+            except Exception:
+                pass
         await update.message.reply_text("✅ Ивент успешно добавлен!")
         await _publish_event(context.bot, chat_id, ev)
         return
@@ -873,6 +883,13 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "msg_id":       None,
         }
         context.bot_data.pop(key, None)
+        # Delete the bot's "add description" prompt message if stored
+        prompt_mid = pending.get("prompt_msg_id")
+        if prompt_mid:
+            try:
+                await context.bot.delete_message(chat_id, prompt_mid)
+            except Exception:
+                pass
         await update.message.reply_text("✅ Ивент успешно добавлен!")
         await _publish_event(context.bot, chat_id, ev)
         return
@@ -909,14 +926,14 @@ async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "awaiting":     "description",
     }
 
-    await q.edit_message_text(
-        f"✏️ Добавь описание к ивенту — где встречаемся, детали, что брать и т.д.\n\n"
-        f"Или нажми кнопку чтобы пропустить.",
+    sent = await q.edit_message_text(
+        f"✏️ Добавь описание к ивенту — где встречаемся, детали, что брать и т.д.",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("⏭ Пропустить", callback_data=f"eday_skip_{etype}_{day}"),
             InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel"),
         ]])
     )
+    # Store message id to delete it after description is entered
+    context.bot_data[key]["prompt_msg_id"] = q.message.message_id
 
 async def cb_eday_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
@@ -1267,7 +1284,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Например: о себе Привет! Я Пётр, 28 лет, люблю настолки и кофе ☕"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Как заполнить анкету",  callback_data="menu_myprofile")],
         [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
         [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
          InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
@@ -1357,8 +1373,18 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _menu_profiles(q, context):
     profiles = storage.load_profiles()
+    how_to = (
+        "✏️ *Как заполнить анкету:*\n"
+        "Напиши в чат:\n"
+        "• `о себе` Привет\\! Меня зовут Иван, 28 лет\n"
+        "• `мой инстаграм @ник`\n"
+        "• `моя работа Название компании`\n\n"
+    )
     if not profiles:
-        await q.message.reply_text("📭 Ещё никто не заполнил анкету.\n\nНапиши: о себе и расскажи о себе")
+        await q.message.reply_text(
+            how_to + "📭 Ещё никто не заполнил анкету\\.",
+            parse_mode="MarkdownV2"
+        )
         return
     chat_id = q.message.chat_id
     filtered = {}
@@ -1370,7 +1396,10 @@ async def _menu_profiles(q, context):
         except Exception:
             pass
     if not filtered:
-        await q.message.reply_text("📭 Никто из текущих участников ещё не заполнил анкету.")
+        await q.message.reply_text(
+            how_to + "📭 Никто из текущих участников ещё не заполнил анкету\\.",
+            parse_mode="MarkdownV2"
+        )
         return
     keyboard = []
     for uid, p in filtered.items():
@@ -1379,7 +1408,8 @@ async def _menu_profiles(q, context):
             label += f" (@{p['username']})"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"showprofile_{uid}")])
     await q.message.reply_text(
-        f"📋 Анкеты участников группы: {len(filtered)}\n\nНажми на имя 👇",
+        how_to + f"📋 Анкеты участников группы: {len(filtered)}\n\nНажми на имя 👇",
+        parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -1754,6 +1784,7 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
     # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
     app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.CHAT_MEMBER))
+    app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
     app.add_handler(CallbackQueryHandler(cb_show_profile, pattern=r"^showprofile_\d+$"))
