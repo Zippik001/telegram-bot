@@ -398,6 +398,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         sent = await update.message.reply_text(_r.choice(petya_texts), parse_mode="Markdown", reply_markup=kb)
         asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
+        asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 120))
 
     # Анонимное сообщение
     if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
@@ -882,7 +883,12 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await context.bot.delete_message(chat_id, prompt_mid)
             except Exception:
                 pass
-        await update.message.reply_text("✅ Ивент успешно добавлен!")
+        _desc_mid = update.message.message_id
+        _success = await update.message.reply_text("✅ Ивент успешно добавлен!")
+        asyncio.create_task(_auto_delete(context.bot, chat_id, _success.message_id, 120))
+        asyncio.create_task(_auto_delete(context.bot, chat_id, _desc_mid, 120))
+        if pending.get("title_msg_id"):
+            asyncio.create_task(_auto_delete(context.bot, chat_id, pending["title_msg_id"], 120))
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -911,14 +917,19 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await context.bot.delete_message(chat_id, prompt_mid)
             except Exception:
                 pass
-        await update.message.reply_text("✅ Ивент успешно добавлен!")
+        _desc_mid = update.message.message_id
+        _success = await update.message.reply_text("✅ Ивент успешно добавлен!")
+        asyncio.create_task(_auto_delete(context.bot, chat_id, _success.message_id, 120))
+        asyncio.create_task(_auto_delete(context.bot, chat_id, _desc_mid, 120))
+        if pending.get("title_msg_id"):
+            asyncio.create_task(_auto_delete(context.bot, chat_id, pending["title_msg_id"], 120))
         await _publish_event(context.bot, chat_id, ev)
         return
 
     if pending.get("type") != "custom":
         return
     pending["custom_title"] = update.message.text
-    days_list2 = DAYS_RU
+    pending["title_msg_id"] = update.message.message_id
     day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_custom_{i}")] for i in range(7)]
     day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data="eday_custom_date_custom")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
@@ -1304,7 +1315,7 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
 
-    await update.message.reply_text(
+    sent = await update.message.reply_text(
         "✅ Автоматические сообщения включены!\n\n"
         "🌤 08:00 — погода\n"
         "📰 08:05 — новость дня\n"
@@ -1314,6 +1325,8 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📈 Вс 20:00 — еженедельный отчёт\n"
         "❓ Каждые ~5 ч (7–22) — случайный вопрос"
     )
+    asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
+    asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 120))
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
