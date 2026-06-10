@@ -1429,13 +1429,13 @@ async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
     await update.message.reply_text(item, parse_mode="Markdown")
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 10))
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 120))
 
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
     await update.message.reply_text(item, parse_mode="Markdown")
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 10))
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 120))
 
 async def _send_qt_menu(send_fn, chat_id: int, bot):
     """Show question/topic sub-menu."""
@@ -2028,7 +2028,7 @@ async def auto_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text or ""
     if not text.startswith("/"):
         return
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 10))
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 120))
 
 
 def main():
