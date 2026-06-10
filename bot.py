@@ -362,26 +362,27 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # AI: если сообщение начинается с имени бота или триггеров
-    bender_prefixes = ("bender,", "бендер,", "бендера,", "бляшанка,", "бляшанка ", "bender ", "бендер ", "бендера ")
-    bender_with_space = ("bender ", "бендер ", "бендера ", "бляшанка ")
-    if any(low.startswith(t) for t in bender_prefixes) or any(low.startswith(t) and len(low) > len(t)+1 for t in bender_with_space):
-        question = text
-        for t in ("bender,", "бендер,", "бендера,", "бляшанка,", "bender ", "бендер ", "бендера ", "бляшанка "):
-            if low.startswith(t):
-                question = text[len(t):].strip()
-                break
-        if question:
-            thinking = await update.message.reply_text("🤖 Так-так, дай-ка подумаю своими железными мозгами...")
-            answer = await ask_ai(question)
-            await thinking.edit_text(f"🤖 {answer}")
-            if user.id not in activity[chat_id]:
-                activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
-            activity[chat_id][user.id]["name"] = user.first_name
-            activity[chat_id][user.id]["count"] += 1
-            return
+    bender_ai_prefixes = (
+        "bender,", "бендер,", "бендера,", "бендере,", "бляшанка,",
+        "bender ", "бендер ", "бендера ", "бендере ", "бляшанка ",
+    )
+    ai_question = None
+    for t in bender_ai_prefixes:
+        if low.startswith(t):
+            ai_question = text[len(t):].strip()
+            break
+    if ai_question:
+        thinking = await update.message.reply_text("🤖 Так-так, дай-ка подумаю своими железными мозгами...")
+        answer = await ask_ai(ai_question)
+        await thinking.edit_text(f"🤖 {answer}")
+        if user.id not in activity[chat_id]:
+            activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
+        activity[chat_id][user.id]["name"] = user.first_name
+        activity[chat_id][user.id]["count"] += 1
+        return
 
     # Вызов меню через имя бота
-    if low.strip().rstrip("!?.,") in ("bender", "бендер", "бендера", "бляшанка"):
+    if low.strip().rstrip("!?.,") in ("bender", "бендер", "бендера", "бендере", "бляшанка"):
         bender_texts = [
             "🤖 *Эй, мясные мешки! Меня позвали?*\n\nЛадно-ладно, не толпитесь — у меня хватит сарказма на каждого 🍺\n\n_Поцелуй меня в блестящий металлический зад_ — но сначала выбери что нужно:",
             "🤖 *Бендер Сгибатель Родригес к вашим услугам!*\n\nХотел напиться, но видимо придётся вас развлекать. Ну что там у вас?\n\nКстати, я *великолепен*. Просто напоминаю. ✨",
@@ -762,7 +763,7 @@ def all_events_text(ev_list, chat_id=None):
     if not ev_list:
         return ("📭 *Список ивентов пуст*\n\n"
                 "Сейчас никаких событий не запланировано.\n"
-                "Чтобы создать новый — напиши Пётр и выбери «Предложить ивент» 🎉")
+                "Чтобы создать новый — напиши Бендер и выбери «Предложить ивент» 🎉")
     lines = [f"📅 *Активные ивенты ({len(ev_list)}):*\n"]
     for ev in ev_list:
         lines.append(event_text(ev, chat_id))
@@ -1537,11 +1538,11 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🤖✨ Пётр Интерактивный к вашим услугам!\n\n"
-        "Я здесь чтобы ваша компания не распадалась от молчанки 😄\n\n"
-        "Чтобы заполнить анкету — напиши сообщение:\n"
+        "🤖✨ Бендер Сгибатель Родригес к вашим услугам!\n\n"
+        "Я здесь чтобы вы, мясные мешки, не потеряли друг друга в тишине 🍺\n\n"
+        "Хочешь заполнить анкету — напиши сообщение:\n"
         "о себе  и дальше расскажи о себе 🙂\n\n"
-        "Например: о себе Привет! Я Пётр, 28 лет, люблю настолки и кофе ☕"
+        "Например: о себе Привет! Я Бендер, 28 лет, люблю пиво и ограбления ☕"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
