@@ -493,6 +493,15 @@ async def _auto_delete(bot, chat_id: int, message_id: int, delay: int = 120):
     except Exception:
         pass
 
+def _schedule_cmd_delete(update, context, delay: int = 10):
+    """Заплановує видалення команди /xxx через delay секунд."""
+    try:
+        chat_id = update.effective_chat.id
+        msg_id  = update.message.message_id
+        asyncio.create_task(_auto_delete(context.bot, chat_id, msg_id, delay))
+    except Exception:
+        pass
+
 # ── Приветствие новых участников ──────────────────────────────────────────────────
 
 async def welcome_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1219,14 +1228,14 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
-    sent = await update.message.reply_text(item, parse_mode="Markdown")
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, sent.message_id, 120))
+    await update.message.reply_text(item, parse_mode="Markdown")
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 10))
 
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
-    sent = await update.message.reply_text(item, parse_mode="Markdown")
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, sent.message_id, 120))
+    await update.message.reply_text(item, parse_mode="Markdown")
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 10))
 
 async def _send_qt_menu(send_fn, chat_id: int, bot):
     """Show question/topic sub-menu."""
@@ -1812,6 +1821,16 @@ async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🇷🇺 Бот работает на русском языке.")
 
 
+async def auto_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Видаляє повідомлення-команду через 10 секунд (тільки в групах)."""
+    if not update.message or update.effective_chat.type == "private":
+        return
+    text = update.message.text or ""
+    if not text.startswith("/"):
+        return
+    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 10))
+
+
 def main():
     import os
     TOKEN = os.environ.get("BOT_TOKEN")
@@ -1834,6 +1853,7 @@ def main():
     )
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message), group=0)
+    app.add_handler(MessageHandler(filters.COMMAND, auto_delete_command), group=2)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name), group=1)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
     # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
