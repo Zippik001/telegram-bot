@@ -1893,7 +1893,8 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not_found:
         lines.append(f"❌ Не найдено: {', '.join(not_found)}")
     lines.append(f"\n👥 Всего в списке: {len(tags)}")
-    await update.message.reply_text("\n".join(lines))
+    sent = await update.message.reply_text("\n".join(lines))
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
 
 
 async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1934,10 +1935,11 @@ async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     storage.save_tags(tags)
-    await update.message.reply_text(
+    sent = await update.message.reply_text(
         f"🗑 Удалено: {', '.join(removed)}\n"
         f"👥 Осталось в списке: {len(tags)}"
     )
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
 
 
 async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1954,7 +1956,8 @@ async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"• {u['name']} ({mention})")
     lines.append("\nДобавить: /addmember @username")
     lines.append("Удалить: /removemember @username")
-    await update.message.reply_text("\n".join(lines))
+    sent = await update.message.reply_text("\n".join(lines))
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
 
 
 async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2000,6 +2003,7 @@ async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"✅ Все списки актуальны — никого не удалено.\n"
             f"👥 Участников: {len(tags)}"
         )
+    _schedule_delete(context, update.effective_chat.id, msg.message_id, 120)
 
 async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: send all automatic messages at once, then delete after 10 sec."""
