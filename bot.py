@@ -331,13 +331,16 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "work": existing.get("work", ""),
             }
             storage.save_profiles(profiles)
-            await update.message.reply_text(
-                f"✅ Сохранено, {user.first_name}!\n\n{info}\n\nПосмотреть: /profile"
+            sent = await update.message.reply_text(
+                f"✅ Сохранено, {user.first_name}!\n\nПосмотреть: /profile"
             )
+            _schedule_delete(context, chat_id, sent.message_id, 120)
+            _schedule_delete(context, chat_id, update.message.message_id, 120)
         else:
-            await update.message.reply_text(
+            sent = await update.message.reply_text(
                 "📋 Напиши текст после «о себе», например:\nо себе Привет! Меня зовут Иван, 27 лет 🙂"
             )
+            _schedule_delete(context, chat_id, sent.message_id, 120)
 
     # Instagram
     if low.startswith("мой инстаграм ") or low.startswith("мій інстаграм "):
@@ -353,7 +356,9 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profiles.pop(str(user.id), None)
             profiles[user.id] = p
             storage.save_profiles(profiles)
-            await update.message.reply_text(f"📸 Instagram сохранён: @{insta}")
+            sent = await update.message.reply_text(f"📸 Instagram сохранён: @{insta}")
+            _schedule_delete(context, chat_id, sent.message_id, 120)
+            _schedule_delete(context, chat_id, update.message.message_id, 120)
         return
 
     # Work / місце роботи
@@ -370,7 +375,9 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profiles.pop(str(user.id), None)
             profiles[user.id] = p
             storage.save_profiles(profiles)
-            await update.message.reply_text(f"💼 Место работы сохранено: {work_val}")
+            sent = await update.message.reply_text(f"💼 Место работы сохранено: {work_val}")
+            _schedule_delete(context, chat_id, sent.message_id, 120)
+            _schedule_delete(context, chat_id, update.message.message_id, 120)
         return
 
     # AI: если сообщение начинается с имени бота или триггеров
