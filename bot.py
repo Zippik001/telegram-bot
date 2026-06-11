@@ -400,8 +400,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
         ])
         sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
-        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
-        asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 120))
+        _schedule_delete(context, chat_id, sent.message_id, 120)
+        _schedule_delete(context, chat_id, update.message.message_id, 120)
         return
 
     # Анонимное сообщение
@@ -429,7 +429,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Добавлено в список!\n\n_{he(text)}_\n\nПоявится при следующем случайном выборе 🎲",
             parse_mode="Markdown"
         )
-        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
+        _schedule_delete(context, chat_id, sent.message_id, 120)
         return
 
     # Активность
@@ -501,12 +501,19 @@ async def _auto_delete(bot, chat_id: int, message_id: int, delay: int = 120):
     except Exception:
         pass
 
+def _schedule_delete(context, chat_id: int, message_id: int, delay: int = 120):
+    """Надійне видалення через job_queue."""
+    async def _do_delete(ctx):
+        try:
+            await ctx.bot.delete_message(chat_id, message_id)
+        except Exception:
+            pass
+    context.job_queue.run_once(_do_delete, when=delay)
+
 def _schedule_cmd_delete(update, context, delay: int = 10):
     """Заплановує видалення команди /xxx через delay секунд."""
     try:
-        chat_id = update.effective_chat.id
-        msg_id  = update.message.message_id
-        asyncio.create_task(_auto_delete(context.bot, chat_id, msg_id, delay))
+        _schedule_delete(context, update.effective_chat.id, update.message.message_id, delay)
     except Exception:
         pass
 
@@ -860,8 +867,8 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             storage.save_events(_events)
             await _refresh_events_message(context.bot, chat_id)
             sent = await update.message.reply_text("✅ Описание ивента обновлено!")
-            asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 30))
-            asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 30))
+            _schedule_delete(context, chat_id, sent.message_id, 30)
+            _schedule_delete(context, chat_id, update.message.message_id, 30)
             prompt_mid = edit_pending.get("prompt_msg_id")
             if prompt_mid:
                 try:
@@ -932,10 +939,10 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
         _desc_mid = update.message.message_id
         _success = await update.message.reply_text("✅ Ивент успешно добавлен!")
-        asyncio.create_task(_auto_delete(context.bot, chat_id, _success.message_id, 120))
-        asyncio.create_task(_auto_delete(context.bot, chat_id, _desc_mid, 120))
+        _schedule_delete(context, chat_id, _success.message_id, 120)
+        _schedule_delete(context, chat_id, _desc_mid, 120)
         if pending.get("title_msg_id"):
-            asyncio.create_task(_auto_delete(context.bot, chat_id, pending["title_msg_id"], 120))
+            _schedule_delete(context, chat_id, pending["title_msg_id"], 120)
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -966,10 +973,10 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
         _desc_mid = update.message.message_id
         _success = await update.message.reply_text("✅ Ивент успешно добавлен!")
-        asyncio.create_task(_auto_delete(context.bot, chat_id, _success.message_id, 120))
-        asyncio.create_task(_auto_delete(context.bot, chat_id, _desc_mid, 120))
+        _schedule_delete(context, chat_id, _success.message_id, 120)
+        _schedule_delete(context, chat_id, _desc_mid, 120)
         if pending.get("title_msg_id"):
-            asyncio.create_task(_auto_delete(context.bot, chat_id, pending["title_msg_id"], 120))
+            _schedule_delete(context, chat_id, pending["title_msg_id"], 120)
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -1187,7 +1194,7 @@ async def cb_ev_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=kb
     )
-    asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 60))
+    _schedule_delete(context, chat_id, sent.message_id, 60)
 
 
 async def cb_ev_editdesc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1429,13 +1436,13 @@ async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
     await update.message.reply_text(item, parse_mode="Markdown")
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 120))
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 120)
 
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
     await update.message.reply_text(item, parse_mode="Markdown")
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 120))
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 120)
 
 async def _send_qt_menu(send_fn, chat_id: int, bot):
     """Show question/topic sub-menu."""
@@ -1534,8 +1541,8 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📈 Вс 20:00 — еженедельный отчёт\n"
         "❓ Каждые ~5 ч (7–22) — случайный вопрос"
     )
-    asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
-    asyncio.create_task(_auto_delete(context.bot, chat_id, update.message.message_id, 120))
+    _schedule_delete(context, chat_id, sent.message_id, 120)
+    _schedule_delete(context, chat_id, update.message.message_id, 120)
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -1554,7 +1561,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
     ])
     sent = await update.message.reply_text(text, reply_markup=keyboard)
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, sent.message_id, 120))
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
 
 
 async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1566,7 +1573,7 @@ async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "qt_random":
         item = random.choice(all_qt_items())
         sent = await q.message.reply_text(item, parse_mode="Markdown")
-        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
+        _schedule_delete(context, chat_id, sent.message_id, 120)
 
     elif action == "qt_add":
         key = f"qt_add_{q.from_user.id}_{chat_id}"
@@ -1575,7 +1582,7 @@ async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✏️ Напиши свой вопрос или тему следующим сообщением.\n\n"
             "Он будет добавлен в общий список и появится при следующем случайном выборе 🎲",
         )
-        asyncio.create_task(_auto_delete(context.bot, chat_id, sent.message_id, 120))
+        _schedule_delete(context, chat_id, sent.message_id, 120)
 
 async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
@@ -1584,7 +1591,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = q.message.chat_id
 
     if action == "myprofile":
-        await q.message.reply_text(
+        sent = await q.message.reply_text(
             "✏️ *Как заполнить анкету*\n\n"
             "Напиши в чат одно из следующих сообщений:\n\n"
             "👤 *Основная информация:*\n"
@@ -1597,6 +1604,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Посмотреть свою анкету: /profile",
             parse_mode="MarkdownV2"
         )
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
         return
 
     if action == "profiles":
@@ -1661,10 +1669,11 @@ async def _menu_profiles(q, context):
         "• `моя работа Название компании`\n\n"
     )
     if not profiles:
-        await q.message.reply_text(
+        sent = await q.message.reply_text(
             how_to + "📭 Ещё никто не заполнил анкету\\.",
             parse_mode="MarkdownV2"
         )
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
         return
     chat_id = q.message.chat_id
     filtered = {}
@@ -1676,10 +1685,11 @@ async def _menu_profiles(q, context):
         except Exception:
             pass
     if not filtered:
-        await q.message.reply_text(
+        sent = await q.message.reply_text(
             how_to + "📭 Никто из текущих участников ещё не заполнил анкету\\.",
             parse_mode="MarkdownV2"
         )
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
         return
     keyboard = []
     for uid, p in filtered.items():
@@ -1687,11 +1697,12 @@ async def _menu_profiles(q, context):
         if p.get("username"):
             label += f" (@{p['username']})"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"showprofile_{uid}")])
-    await q.message.reply_text(
+    sent = await q.message.reply_text(
         how_to + f"📋 Анкеты участников группы: {len(filtered)}\n\nНажми на имя 👇",
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
 
 async def _menu_report(q, context):
     chat_id = q.message.chat_id
@@ -2028,7 +2039,7 @@ async def auto_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text or ""
     if not text.startswith("/"):
         return
-    asyncio.create_task(_auto_delete(context.bot, update.effective_chat.id, update.message.message_id, 120))
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 120)
 
 
 def main():
