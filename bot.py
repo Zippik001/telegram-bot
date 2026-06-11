@@ -22,6 +22,7 @@ def he(text: str) -> str:
 
 
 WEATHER_LAT, WEATHER_LON = "48.1486", "17.1077"
+WEATHER_CITY = "Bratislava"
 
 _events: dict = storage.load_events()
 _event_counter: int = max((e["id"] for evs in _events.values() for e in evs), default=0)
@@ -163,19 +164,14 @@ def DAYS(chat_id=None):
 # ── Погода ────────────────────────────────────
 
 async def fetch_weather_full():
-    url = (
-        "https://api.open-meteo.com/v1/forecast"
-        f"?latitude={WEATHER_LAT}&longitude={WEATHER_LON}"
-        "&current=temperature_2m,apparent_temperature,weathercode,windspeed_10m,relative_humidity_2m"
-        "&hourly=temperature_2m,weathercode,precipitation_probability"
-        "&forecast_days=1"
-        "&timezone=Europe%2FBratislava"
-    )
+    """Погода через wttr.in — надёжно работает на Railway."""
+    url = f"https://wttr.in/{WEATHER_CITY}?format=j1"
     try:
         async with aiohttp.ClientSession() as s:
-            async with s.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            async with s.get(url, timeout=aiohttp.ClientTimeout(total=15),
+                             headers={"User-Agent": "curl/7.68.0"}) as r:
                 if r.status == 200:
-                    return await r.json()
+                    return await r.json(content_type=None)
     except Exception as e:
         logger.error(f"Weather: {e}")
     return None
@@ -183,84 +179,100 @@ async def fetch_weather_full():
 async def fetch_weather():
     return await fetch_weather_full()
 
-def wmo_emoji(c):
-    if c == 0: return "☀️"
-    if c in (1,2): return "🌤"
-    if c == 3: return "☁️"
-    if c in (45,48): return "🌫"
-    if 51<=c<=67: return "🌧"
-    if 71<=c<=77: return "🌨"
-    if 80<=c<=82: return "🌦"
-    if c in (95,96,99): return "⛈"
+def wttr_emoji(code: int) -> str:
+    if code in (113,): return "☀️"
+    if code in (116,): return "🌤"
+    if code in (119, 122): return "☁️"
+    if code in (143, 248, 260): return "🌫"
+    if code in (176, 263, 266, 293, 296, 299, 302, 305, 308,
+                353, 356, 359, 362, 365, 368, 371): return "🌧"
+    if code in (179, 182, 185, 281, 284, 311, 314, 317, 320,
+                323, 326, 329, 332, 335, 338, 350, 374, 377): return "🌨"
+    if code in (200, 386, 389, 392, 395): return "⛈"
     return "🌡"
 
-def wmo_desc(c):
-    return {0:"Ясно",1:"Преимущественно ясно",2:"Переменная облачность",3:"Облачно",
-            45:"Туман",51:"Морось",61:"Дождь",63:"Умеренный дождь",65:"Сильный дождь",
-            71:"Снег",80:"Ливень",95:"Гроза"}.get(c,"Переменная погода")
+def wttr_desc(code: int) -> str:
+    descs = {
+        113: "Ясно", 116: "Переменная облачность", 119: "Облачно", 122: "Пасмурно",
+        143: "Туман", 176: "Дождь", 179: "Снег", 182: "Морось со снегом",
+        185: "Ледяная морось", 200: "Гроза", 263: "Лёгкая морось",
+        266: "Морось", 281: "Ледяная морось", 293: "Лёгкий дождь",
+        296: "Дождь", 299: "Умеренный дождь", 302: "Сильный дождь",
+        305: "Сильный дождь", 308: "Очень сильный дождь",
+        317: "Дождь со снегом", 320: "Снег", 323: "Лёгкий снег",
+        326: "Снег", 329: "Умеренный снег", 332: "Сильный снег",
+        353: "Ливень", 356: "Ливень", 359: "Проливной дождь",
+        386: "Гроза", 389: "Сильная гроза", 395: "Снег с грозой",
+    }
+    return descs.get(code, "Переменная погода")
 
-def weather_tip_full(slots):
-    codes = [s["code"] for s in slots]
-    temps = [s["temp"] for s in slots]
-    has_rain  = any(51<=c<=82 for c in codes)
-    has_storm = any(c in (95,96,99) for c in codes)
-    has_snow  = any(71<=c<=77 for c in codes)
-    min_t = min(temps)
-    max_t = max(temps)
-
-    funny = []
-    if has_storm:
-        funny.append("Гроза? Оставайся дома, стань человеком-диваном ⛈🛋")
-    elif has_rain:
-        funny.append("Дождь идёт — хороший повод не выходить и смотреть сериалы 🌧🍿")
-    elif has_snow:
-        funny.append("Снежок! Отлично, если ты пингвин 🐧❄️")
-    elif max_t > 28:
-        funny.append("Жара! Одевайся как солнечная батарея и плавь тротуары ☀️🥵")
-    elif min_t < 3:
-        funny.append("Холодно как в сердце того, кто не отвечает на сообщения 🥶")
-    elif max_t > 18:
-        funny.append("Погода — 10 из 10, даже монитор стыдно открывать 🌞")
-    else:
-        funny.append("Обычная братиславская погода — непредсказуемая как настроение в понедельник 😅")
-    return funny[0]
+def weather_tip_wttr(temp_c: int, code: int, wind: int) -> str:
+    rain_codes = {176,263,266,293,296,299,302,305,308,353,356,359}
+    snow_codes = {179,182,185,281,284,317,320,323,326,329,332,338,350,368,371,374,377}
+    storm_codes = {200,386,389,392,395}
+    if code in storm_codes:
+        return "Гроза? Оставайся дома, стань человеком-диваном ⛈🛋"
+    if code in rain_codes:
+        return "Дождь идёт — хороший повод не выходить и смотреть сериалы 🌧🍿"
+    if code in snow_codes:
+        return "Снежок! Отлично, если ты пингвин 🐧❄️"
+    if temp_c > 28:
+        return "Жара! Одевайся как солнечная батарея и плавь тротуары ☀️🥵"
+    if temp_c < 3:
+        return "Холодно как в сердце того, кто не отвечает на сообщения 🥶"
+    if wind > 40:
+        return "Сильный ветер — держи шапку! 💨"
+    if temp_c > 18:
+        return "Погода — 10 из 10, даже монитор стыдно открывать 🌞"
+    return "Обычная братиславская погода — непредсказуемая как настроение в понедельник 😅"
 
 def build_weather_full(data):
-    hours_map = {8: "🌅 Утро",  11: "☀️ Полдень",
-                 14: "🌤 День",  17: "🌇 Вечер", 20: "🌙 Ночь"}
+    try:
+        cur = data["current_condition"][0]
+        temp_c = int(cur["temp_C"])
+        feels  = int(cur["FeelsLikeC"])
+        wind   = int(cur["windspeedKmph"])
+        hum    = int(cur["humidity"])
+        code   = int(cur["weatherCode"])
 
-    hourly_times = data["hourly"]["time"]
-    hourly_temps = data["hourly"]["temperature_2m"]
-    hourly_codes = data["hourly"]["weathercode"]
-    hourly_prec  = data["hourly"]["precipitation_probability"]
+        # Погода по годинах з hourly
+        today = data["weather"][0] if data.get("weather") else None
+        hourly = today.get("hourly", []) if today else []
 
-    slots = []
-    for target_h, label in hours_map.items():
-        idx = next((i for i, t in enumerate(hourly_times) if f"T{target_h:02d}:00" in t), None)
-        if idx is None:
-            continue
-        temp = round(hourly_temps[idx])
-        code = int(hourly_codes[idx])
-        prec = int(hourly_prec[idx])
-        emoji = wmo_emoji(code)
-        desc  = wmo_desc(code)
-        prec_str = f" 💧{prec}%" if prec > 20 else ""
-        slots.append({
-            "label": label, "temp": temp, "code": code,
-            "emoji": emoji, "desc": desc, "prec_str": prec_str
-        })
+        HOUR_LABELS = {
+            "0":  "🌅 Ночь",  "3": "🌅 Ночь",
+            "6":  "🌅 Утро",  "9": "☀️ Утро",
+            "12": "☀️ Полдень", "15": "🌤 День",
+            "18": "🌇 Вечер", "21": "🌙 Ночь",
+        }
 
-    now = datetime.now(pytz.timezone("Europe/Bratislava"))
-    date_str = now.strftime("%d.%m.%Y")
-    weekdays = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"]
-    weekday = weekdays[now.weekday()]
-    lines = [f"🌍 *Погода в Братиславе*\n📅 {weekday}, {date_str}\n"]
-    for s in slots:
-        lines.append(f"{s['label']}: {s['emoji']} {s['temp']}°C — {s['desc']}{s['prec_str']}")
+        now = datetime.now(pytz.timezone("Europe/Bratislava"))
+        date_str = now.strftime("%d.%m.%Y")
+        weekdays = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"]
+        weekday = weekdays[now.weekday()]
 
-    tip = weather_tip_full(slots) if slots else "Хорошего дня! ☀️"
-    lines.append(f"\n💡 _{tip}_")
-    return "\n".join(lines)
+        lines = [f"🌍 *Погода в Братиславе*\n📅 {weekday}, {date_str}\n"]
+        lines.append(f"Сейчас: {wttr_emoji(code)} *{wttr_desc(code)}* {temp_c}°C (ощущается {feels}°C)")
+        lines.append(f"💨 Ветер: {wind} км/ч  💧 Влажность: {hum}%\n")
+
+        target_hours = ["6", "9", "12", "15", "18", "21"]
+        slots = []
+        for h_data in hourly:
+            h = str(int(h_data["time"]) // 100)
+            if h in target_hours:
+                t = int(h_data["tempC"])
+                c = int(h_data["weatherCode"])
+                p = int(h_data.get("chanceofrain", 0))
+                label = HOUR_LABELS.get(h, f"{h}:00")
+                prec_str = f" 💧{p}%" if p > 20 else ""
+                lines.append(f"{label}: {wttr_emoji(c)} {t}°C — {wttr_desc(c)}{prec_str}")
+
+        tip = weather_tip_wttr(temp_c, code, wind)
+        lines.append(f"\n💡 _{tip}_")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"build_weather_full: {e}")
+        return "😔 Не удалось обработать данные погоды."
 
 def build_weather_text(data):
     return build_weather_full(data)
