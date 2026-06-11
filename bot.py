@@ -527,9 +527,35 @@ async def welcome_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE
     old_status = result.old_chat_member.status
     new_status = result.new_chat_member.status
     member = result.new_chat_member.user
+
+    # Бот сам зайшов у групу
+    if member.is_bot and member.id == context.bot.id:
+        if new_status in ("member", "administrator"):
+            await context.bot.send_message(
+                result.chat.id,
+                "🤖 *ЭЙ, МЯСНЫЕ МЕШКИ! Я ЗДЕСЬ!*\n\n"
+                "Бендер Сгибатель Родригес только что снизошёл до вашей группы. "
+                "Можете аплодировать — я подожду. 👏\n\n"
+                "Что я умею (и делаю великолепно):\n"
+                "🎉 Создавать и отслеживать *ивенты* — кто идёт, кто трус\n"
+                "📋 Хранить *анкеты* участников — чтобы вы знали с кем пьёте\n"
+                "📢 *Созывать всех* одной командой — никто не спрячется\n"
+                "🌤 Рассказывать *погоду* — чтобы вы не мокли (хотя мне всё равно)\n"
+                "❓ Задавать *провокационные вопросы* — для оживления беседы\n"
+                "🤖 *Отвечать на вопросы* — с должным сарказмом и величием\n"
+                "📊 Вести *статистику* — кто балтун, кто молчун\n\n"
+                "Чтобы вызвать меня — напишите *Бендер* в чат.\n"
+                "Чтобы спросить что-то — *Бендер, [вопрос]*\n\n"
+                "_Поцелуйте мой блестящий металлический зад. "
+                "С любовью и сарказмом — Бендер._ 🍺✨",
+                parse_mode="Markdown"
+            )
+        return
+
     if member.is_bot:
         return
-    # Joined: was not a member, now is a full/restricted/admin member
+
+    # Звичайний учасник зайшов
     joined = (
         old_status in ("left", "kicked", "banned", "unknown")
         and new_status in ("member", "restricted", "administrator", "creator")
@@ -2069,6 +2095,7 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
     # For supergroups where Telegram sends ChatMemberUpdated instead of service messages
     app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.CHAT_MEMBER))
+    app.add_handler(ChatMemberHandler(welcome_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
     app.add_handler(CallbackQueryHandler(cb_qt,           pattern=r"^qt_"))
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern=r"^menu_"))
