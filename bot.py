@@ -409,7 +409,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
             [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
             [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
-            [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
         ])
         sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
         _schedule_delete(context, chat_id, sent.message_id, 120)
@@ -1432,6 +1431,13 @@ def medal(r):
 
 async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    try:
+        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if m.status not in ("administrator", "creator"):
+            await update.message.reply_text("⛔ Только администраторы могут видеть отчёт активности.")
+            return
+    except Exception:
+        pass
     data    = activity.get(chat_id, {})
     tags    = storage.load_tags()
 
@@ -1596,7 +1602,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
         [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
-        [InlineKeyboardButton("📊 Отчёт активности",     callback_data="menu_report")],
     ])
     sent = await update.message.reply_text(text, reply_markup=keyboard)
     _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
@@ -1744,6 +1749,14 @@ async def _menu_profiles(q, context):
 
 async def _menu_report(q, context):
     chat_id = q.message.chat_id
+    # Тільки адміни
+    try:
+        m = await context.bot.get_chat_member(chat_id, q.from_user.id)
+        if m.status not in ("administrator", "creator"):
+            await q.answer("⛔ Только администраторы могут видеть отчёт активности.", show_alert=True)
+            return
+    except Exception:
+        pass
     data    = activity.get(chat_id, {})
     tags    = storage.load_tags()
     if not data:
