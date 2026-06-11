@@ -334,13 +334,13 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent = await update.message.reply_text(
                 f"✅ Сохранено, {user.first_name}!\n\nПосмотреть: /profile"
             )
-            _schedule_delete(context, chat_id, sent.message_id, 120)
-            _schedule_delete(context, chat_id, update.message.message_id, 120)
+            _schedule_delete(context, chat_id, sent.message_id, 60)
+            _schedule_delete(context, chat_id, update.message.message_id, 60)
         else:
             sent = await update.message.reply_text(
                 "📋 Напиши текст после «о себе», например:\nо себе Привет! Меня зовут Иван, 27 лет 🙂"
             )
-            _schedule_delete(context, chat_id, sent.message_id, 120)
+            _schedule_delete(context, chat_id, sent.message_id, 60)
 
     # Instagram
     if low.startswith("мой инстаграм ") or low.startswith("мій інстаграм "):
@@ -357,8 +357,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profiles[user.id] = p
             storage.save_profiles(profiles)
             sent = await update.message.reply_text(f"📸 Instagram сохранён: @{insta}")
-            _schedule_delete(context, chat_id, sent.message_id, 120)
-            _schedule_delete(context, chat_id, update.message.message_id, 120)
+            _schedule_delete(context, chat_id, sent.message_id, 60)
+            _schedule_delete(context, chat_id, update.message.message_id, 60)
         return
 
     # Work / місце роботи
@@ -376,8 +376,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profiles[user.id] = p
             storage.save_profiles(profiles)
             sent = await update.message.reply_text(f"💼 Место работы сохранено: {work_val}")
-            _schedule_delete(context, chat_id, sent.message_id, 120)
-            _schedule_delete(context, chat_id, update.message.message_id, 120)
+            _schedule_delete(context, chat_id, sent.message_id, 60)
+            _schedule_delete(context, chat_id, update.message.message_id, 60)
         return
 
     # AI: если сообщение начинается с имени бота или триггеров
@@ -418,8 +418,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
         ])
         sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
-        _schedule_delete(context, chat_id, sent.message_id, 120)
-        _schedule_delete(context, chat_id, update.message.message_id, 120)
+        _schedule_delete(context, chat_id, sent.message_id, 60)
+        _schedule_delete(context, chat_id, update.message.message_id, 60)
         return
 
     # Анонимное сообщение
@@ -447,7 +447,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Добавлено в список!\n\n_{he(text)}_\n\nПоявится при следующем случайном выборе 🎲",
             parse_mode="Markdown"
         )
-        _schedule_delete(context, chat_id, sent.message_id, 120)
+        _schedule_delete(context, chat_id, sent.message_id, 60)
         return
 
     # Активность
@@ -696,7 +696,8 @@ async def cb_show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         extra += f"\n📸 Instagram: @{he(p['instagram'])}"
     if p.get("work"):
         extra += f"\n💼 Работа: {he(p['work'])}"
-    await q.message.reply_text(f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}{extra}", parse_mode="HTML")
+    sent = await q.message.reply_text(f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}{extra}", parse_mode="HTML")
+    _schedule_delete(context, q.message.chat_id, sent.message_id, 60)
 
 # ── Теги / Сбор ───────────────────────────────
 
@@ -986,10 +987,10 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
         _desc_mid = update.message.message_id
         _success = await update.message.reply_text("✅ Ивент успешно добавлен!")
-        _schedule_delete(context, chat_id, _success.message_id, 120)
-        _schedule_delete(context, chat_id, _desc_mid, 120)
+        _schedule_delete(context, chat_id, _success.message_id, 60)
+        _schedule_delete(context, chat_id, _desc_mid, 60)
         if pending.get("title_msg_id"):
-            _schedule_delete(context, chat_id, pending["title_msg_id"], 120)
+            _schedule_delete(context, chat_id, pending["title_msg_id"], 60)
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -1020,10 +1021,10 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
         _desc_mid = update.message.message_id
         _success = await update.message.reply_text("✅ Ивент успешно добавлен!")
-        _schedule_delete(context, chat_id, _success.message_id, 120)
-        _schedule_delete(context, chat_id, _desc_mid, 120)
+        _schedule_delete(context, chat_id, _success.message_id, 60)
+        _schedule_delete(context, chat_id, _desc_mid, 60)
         if pending.get("title_msg_id"):
-            _schedule_delete(context, chat_id, pending["title_msg_id"], 120)
+            _schedule_delete(context, chat_id, pending["title_msg_id"], 60)
         await _publish_event(context.bot, chat_id, ev)
         return
 
@@ -1490,13 +1491,13 @@ async def cmd_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
     await update.message.reply_text(item, parse_mode="Markdown")
-    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 60)
 
 async def cmd_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Legacy command — redirect to combined handler."""
     item = random.choice(all_qt_items())
     await update.message.reply_text(item, parse_mode="Markdown")
-    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 60)
 
 async def _send_qt_menu(send_fn, chat_id: int, bot):
     """Show question/topic sub-menu."""
@@ -1509,7 +1510,7 @@ async def _send_qt_menu(send_fn, chat_id: int, bot):
         parse_mode="Markdown",
         reply_markup=kb
     )
-    asyncio.create_task(_auto_delete(bot, chat_id, sent.message_id, 120))
+    asyncio.create_task(_auto_delete(bot, chat_id, sent.message_id, 60))
 
 # ── Автоматические задачи ──────────────────────
 
@@ -1595,8 +1596,8 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📈 Вс 20:00 — еженедельный отчёт\n"
         "❓ Каждые ~5 ч (7–22) — случайный вопрос"
     )
-    _schedule_delete(context, chat_id, sent.message_id, 120)
-    _schedule_delete(context, chat_id, update.message.message_id, 120)
+    _schedule_delete(context, chat_id, sent.message_id, 60)
+    _schedule_delete(context, chat_id, update.message.message_id, 60)
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -1614,7 +1615,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
     ])
     sent = await update.message.reply_text(text, reply_markup=keyboard)
-    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
 
 
 async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1626,7 +1627,7 @@ async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "qt_random":
         item = random.choice(all_qt_items())
         sent = await q.message.reply_text(item, parse_mode="Markdown")
-        _schedule_delete(context, chat_id, sent.message_id, 120)
+        _schedule_delete(context, chat_id, sent.message_id, 60)
 
     elif action == "qt_add":
         key = f"qt_add_{q.from_user.id}_{chat_id}"
@@ -1635,7 +1636,7 @@ async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✏️ Напиши свой вопрос или тему следующим сообщением.\n\n"
             "Он будет добавлен в общий список и появится при следующем случайном выборе 🎲",
         )
-        _schedule_delete(context, chat_id, sent.message_id, 120)
+        _schedule_delete(context, chat_id, sent.message_id, 60)
 
 async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
@@ -1657,7 +1658,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Посмотреть свою анкету: /profile",
             parse_mode="MarkdownV2"
         )
-        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 60)
         return
 
     if action == "profiles":
@@ -1726,7 +1727,7 @@ async def _menu_profiles(q, context):
             how_to + "📭 Ещё никто не заполнил анкету\\.",
             parse_mode="MarkdownV2"
         )
-        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 60)
         return
     chat_id = q.message.chat_id
     filtered = {}
@@ -1742,7 +1743,7 @@ async def _menu_profiles(q, context):
             how_to + "📭 Никто из текущих участников ещё не заполнил анкету\\.",
             parse_mode="MarkdownV2"
         )
-        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 60)
         return
     keyboard = []
     for uid, p in filtered.items():
@@ -1755,7 +1756,7 @@ async def _menu_profiles(q, context):
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
+    _schedule_delete(context, q.message.chat_id, sent.message_id, 60)
 
 async def _menu_report(q, context):
     chat_id = q.message.chat_id
@@ -1901,7 +1902,7 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"❌ Не найдено: {', '.join(not_found)}")
     lines.append(f"\n👥 Всего в списке: {len(tags)}")
     sent = await update.message.reply_text("\n".join(lines))
-    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
 
 
 async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1946,7 +1947,7 @@ async def cmd_removemember(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🗑 Удалено: {', '.join(removed)}\n"
         f"👥 Осталось в списке: {len(tags)}"
     )
-    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
 
 
 async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1964,7 +1965,7 @@ async def cmd_listmembers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append("\nДобавить: /addmember @username")
     lines.append("Удалить: /removemember @username")
     sent = await update.message.reply_text("\n".join(lines))
-    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
 
 
 async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2010,7 +2011,7 @@ async def cmd_cleanup_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"✅ Все списки актуальны — никого не удалено.\n"
             f"👥 Участников: {len(tags)}"
         )
-    _schedule_delete(context, update.effective_chat.id, msg.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, msg.message_id, 60)
 
 async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: send all automatic messages at once, then delete after 10 sec."""
@@ -2104,7 +2105,7 @@ async def auto_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text or ""
     if not text.startswith("/"):
         return
-    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 120)
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 60)
 
 
 def main():
