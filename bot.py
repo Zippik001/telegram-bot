@@ -1573,17 +1573,14 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     jq      = context.job_queue
     all_names = [str(chat_id), f"{chat_id}_weather", f"{chat_id}_friday",
                  f"{chat_id}_evening", f"{chat_id}_monday", f"{chat_id}_report",
-                 f"{chat_id}_news", f"{chat_id}_cleanup"]
+                 f"{chat_id}_news", f"{chat_id}_cleanup", f"{chat_id}_qt"]
     for name in all_names:
         for job in jq.get_jobs_by_name(name):
             job.schedule_removal()
 
-    jq.run_repeating(sched_random,         interval=5*3600, first=60,   data={"chat_id":chat_id}, name=str(chat_id))
     jq.run_daily(sched_weather,            time=time(8,0,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_weather")
     jq.run_daily(sched_morning_news,       time=time(8,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_news")
-    jq.run_daily(sched_friday,             time=time(10,0,tzinfo=KYIV_TZ),  days=(4,),            data={"chat_id":chat_id}, name=f"{chat_id}_friday")
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
-    jq.run_daily(sched_monday,             time=time(10,0,tzinfo=KYIV_TZ),  days=(0,),            data={"chat_id":chat_id}, name=f"{chat_id}_monday")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
 
@@ -1591,14 +1588,39 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ Автоматические сообщения включены!\n\n"
         "🌤 08:00 — погода\n"
         "📰 08:05 — новость дня\n"
-        "📅 Пн 10:00 — напоминание + ивент\n"
-        "🎉 Пт 10:00 — планы на выходные\n"
         "🌙 Каждый день 21:00 — как прошёл день\n"
-        "📈 Вс 20:00 — еженедельный отчёт\n"
-        "❓ Каждые ~5 ч (7–22) — случайный вопрос"
+        "📈 Вс 20:00 — еженедельный отчёт\n\n"
+        "Выключить: /autooff"
     )
     _schedule_delete(context, chat_id, sent.message_id, 60)
     _schedule_delete(context, chat_id, update.message.message_id, 60)
+
+async def cmd_autooff(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вимкнути всі авто-повідомлення."""
+    chat_id = update.effective_chat.id
+    try:
+        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if m.status not in ("administrator", "creator"):
+            await update.message.reply_text("❌ Только администраторы могут управлять авто-сообщениями.")
+            return
+    except Exception:
+        pass
+    jq = context.job_queue
+    all_names = [str(chat_id), f"{chat_id}_weather", f"{chat_id}_friday",
+                 f"{chat_id}_evening", f"{chat_id}_monday", f"{chat_id}_report",
+                 f"{chat_id}_news", f"{chat_id}_cleanup", f"{chat_id}_qt"]
+    count = 0
+    for name in all_names:
+        for job in jq.get_jobs_by_name(name):
+            job.schedule_removal()
+            count += 1
+    sent = await update.message.reply_text(
+        f"⏹ Все авто-сообщения отключены ({count} задач удалено).\n\n"
+        "Включить снова: /autostart"
+    )
+    _schedule_delete(context, chat_id, sent.message_id, 60)
+    _schedule_delete(context, chat_id, update.message.message_id, 10)
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -2168,6 +2190,7 @@ def main():
     app.add_handler(CommandHandler("tags",          cmd_tags_list))
     app.add_handler(CommandHandler("profile",       cmd_profile))
     app.add_handler(CommandHandler("profiles",      cmd_profiles_list))
+    app.add_handler(CommandHandler("autooff",      cmd_autooff))
     app.add_handler(CommandHandler("autostart",     cmd_autostart))
     app.add_handler(CommandHandler("lang",          cmd_lang))
     app.add_handler(CommandHandler("addmember",     cmd_addmember))
