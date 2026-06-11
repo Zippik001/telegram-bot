@@ -656,10 +656,11 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         extra += f"\n📸 Instagram: @{he(p['instagram'])}"
     if p.get("work"):
         extra += f"\n💼 Работа: {he(p['work'])}"
-    await update.message.reply_text(
+    sent = await update.message.reply_text(
         f"👤 <b>{he(p['tg_name'])}</b> ({mention})\n\n{he(p['text'])}{extra}",
         parse_mode="HTML"
     )
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
 
 async def cmd_profiles_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profiles = storage.load_profiles()
