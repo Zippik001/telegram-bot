@@ -35,14 +35,23 @@ def save_profiles(data: dict):
     except Exception as e:
         logger.error(f"save_profiles: {e}")
 
+# In-memory кеш — щоб уникнути гонки умов при частих записах
+_tags_cache: dict | None = None
+
 # ── Tags ──────────────────────────────────────
 
 def load_tags() -> dict:
-    """Повертає { str(user_id): {name, username} }"""
+    """Повертає { str(user_id): {name, username} } — з кешу якщо є."""
+    global _tags_cache
+    if _tags_cache is not None:
+        return dict(_tags_cache)
     try:
         with open(TAGS_FILE, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            _tags_cache = data
+            return dict(data)
     except FileNotFoundError:
+        _tags_cache = {}
         return {}
     except Exception as e:
         logger.error(f"load_tags: {e}")
@@ -56,13 +65,19 @@ def save_tags(data: dict):
         logger.error(f"save_tags: {e}")
 
 def register_user(user):
-    """Зберігає учасника при кожному повідомленні."""
-    tags = load_tags()
-    tags[str(user.id)] = {
+    """Зберігає учасника при кожному повідомленні (з кешем у пам'яті)."""
+    global _tags_cache
+    if _tags_cache is None:
+        _tags_cache = load_tags()
+
+    uid = str(user.id)
+    new_entry = {
         "name":     user.first_name,
         "username": user.username or "",
     }
-    save_tags(tags)
+    if _tags_cache.get(uid) != new_entry:
+        _tags_cache[uid] = new_entry
+        save_tags(_tags_cache)
 
 # ── Events ────────────────────────────────────
 

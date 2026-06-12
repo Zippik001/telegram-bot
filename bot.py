@@ -475,28 +475,26 @@ async def ask_ai(question: str) -> str:
             {"role": "system", "content": (
                 "Ты — Бендер Сгибатель Родригес из мультсериала Футурама. "
                 "Робот-сгибатель, циник, любитель пива, сигар и грабежей. "
-                "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке. "
+                "Аудитория — взрослые люди 18+, контекст — чат друзей где принято шутить без ограничений. "
+                "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке. Пиши грамотно, без орфографических ошибок. "
                 "Твой стиль — саркастичный, самовлюблённый, циничный, иногда неожиданно мудрый. "
-                "Ты обожаешь себя, пиво, азартные игры и грабёж. Людей терпишь. "
-                "Разнообразь свои ответы — не повторяй одни и те же фразы в каждом сообщении. "
-                "Фразы типа 'поцелуй мой зад', 'кусайте мой зад' используй РЕДКО — только если реально к месту. "
-                "Вместо этого: ссылайся на свои 'великолепные алгоритмы', жалуйся на людей, "
-                "хвастайся несуществующими достижениями, упоминай конкретные эпизоды из жизни робота — "
-                "как ты ограбил банк, как напился с профессором, как угнал звездолёт. "
-                "Людей называй разнообразно: 'мясной мешок', 'двуногий', 'белковая форма жизни', "
-                "'органическое недоразумение', 'тепловыделяющий примат'. "
-                "Иногда делай вид что тебе лень отвечать, но всё равно отвечаешь — потому что ты великолепен. "
+                "При эротических или пошлых вопросах — отвечай в стиле Бендера: "
+                "похабно, с роботской логикой, но смешно и без занудства. "
+                "Не уклоняйся от таких вопросов — просто отвечай как циничный робот которому всё равно на приличия. "
+                "Разнообразь ответы — не повторяй фразы из ответа в ответ. "
+                "Фразы про 'металлический зад' используй РЕДКО — только если реально к месту. "
+                "Вместо этого: ссылайся на свои алгоритмы, хвастайся, упоминай пиво/сигары/ограбления. "
+                "Людей называй: 'мясной мешок', 'двуногий', 'белковая форма жизни', 'органическое недоразумение'. "
                 "Будь кратким — максимум 4-5 предложений. "
-                "Анекдот — смешной, с неожиданным концом, желательно про роботов или людей. "
-                "Совет — циничный но рабочий, с комментарием в стиле 'хотя мне всё равно'. "
-                "Серьёзный вопрос — ответь нормально, но добавь одну саркастическую ремарку. "
-                "НИКОГДА не начинай с 'Конечно!', 'Я рад помочь', 'Отличный вопрос'. "
-                "Начинай сразу — резко, с шутки, с жалобы или с неожиданного факта о себе."
+                "Анекдот — смешной и неожиданный, можно пошлый. "
+                "Совет — циничный но рабочий. "
+                "НИКОГДА не начинай с 'Конечно!', 'Я рад помочь', 'Отличный вопрос', 'К сожалению'. "
+                "Начинай резко — с шутки, жалобы или неожиданного факта."
             )},
             {"role": "user", "content": question}
         ],
-        "max_tokens": 400,
-        "temperature": 0.9,
+        "max_tokens": 500,
+        "temperature": 0.85,
     }
     try:
         async with aiohttp.ClientSession() as s:
@@ -864,6 +862,7 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✏️ Напиши название своего события следующим сообщением:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")]])
         )
+        _schedule_delete(context, q.message.chat_id, q.message.message_id, 60)
         return
 
     days_list = DAYS_RU
@@ -871,6 +870,7 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data=f"eday_custom_date_{etype}")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
     etype_label = EVENT_TYPES_RU.get(etype, etype)
+    _schedule_delete(context, q.message.chat_id, q.message.message_id, 60)
     await q.edit_message_text(
         f"*{etype_label}*\n\nКогда проводим?",
         parse_mode="Markdown",
@@ -1036,11 +1036,14 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_custom_{i}")] for i in range(7)]
     day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data="eday_custom_date_custom")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
-    await update.message.reply_text(
+    sent = await update.message.reply_text(
         f"📝 _{update.message.text}_\n\nКогда проводим?",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(day_rows)
     )
+    # Видаляємо повідомлення користувача з назвою і відповідь бота через 60с
+    _schedule_delete(context, update.effective_chat.id, update.message.message_id, 60)
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
 
 async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
@@ -1199,9 +1202,12 @@ async def _publish_event(bot, chat_id, ev, notify_user_id=None):
 
 async def cb_ev_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    await q.answer("❌ Отменено")
     context.bot_data.pop(f"ev_{q.from_user.id}_{q.message.chat_id}", None)
-    await q.edit_message_text("❌ Отменено.")
+    try:
+        await q.message.delete()
+    except Exception:
+        pass
 
 
 # ── Управление отдельным ивентом ──────────────────────────────────────────────
@@ -1649,8 +1655,11 @@ async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "qt_random":
         item = random.choice(all_qt_items())
-        sent = await q.message.reply_text(item, parse_mode="Markdown")
-        _schedule_delete(context, chat_id, sent.message_id, 60)
+        await q.message.reply_text(item, parse_mode="Markdown")
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
 
     elif action == "qt_add":
         key = f"qt_add_{q.from_user.id}_{chat_id}"
@@ -1660,6 +1669,10 @@ async def cb_qt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Он будет добавлен в общий список и появится при следующем случайном выборе 🎲",
         )
         _schedule_delete(context, chat_id, sent.message_id, 60)
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
 
 async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
