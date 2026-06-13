@@ -319,31 +319,46 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     low  = text.lower()
 
-    # ── Reply на повідомлення з анкетою — дописати текст до анкети ──
-    reply = update.message.reply_to_message
-    if reply and reply.from_user and reply.from_user.is_bot:
-        reply_text = reply.text or ""
-        is_anketa_msg = (
-            reply_text.startswith("✅ Сохранено")
-            or reply_text.startswith("👤")
-        )
-        if is_anketa_msg and text:
-            profiles = storage.load_profiles()
-            existing = profiles.get(user.id) or profiles.get(str(user.id))
-            if existing:
-                profiles.pop(str(user.id), None)
-                existing["text"] = (existing.get("text", "") + "\n" + text).strip()
-                existing["tg_name"] = user.first_name
-                existing["username"] = user.username or existing.get("username", "")
-                profiles[user.id] = existing
+    # ── Reply "Анкета" на чиєсь повідомлення — записати той текст як анкету автора оригіналу ──
+    if low.strip() in ("анкета", "анкету", "анкеta", "anketa"):
+        reply = update.message.reply_to_message
+        if reply and reply.from_user and not reply.from_user.is_bot:
+            target_user = reply.from_user
+            info = (reply.text or reply.caption or "").strip()
+            if info:
+                profiles = storage.load_profiles()
+                existing = profiles.get(target_user.id) or profiles.get(str(target_user.id)) or {}
+                profiles.pop(str(target_user.id), None)
+                profiles[target_user.id] = {
+                    "text": info,
+                    "username": target_user.username or "",
+                    "tg_name": target_user.first_name,
+                    "instagram": existing.get("instagram", ""),
+                    "work": existing.get("work", ""),
+                }
                 storage.save_profiles(profiles)
+                storage.register_user(target_user)
                 sent = await update.message.reply_text(
-                    f"✅ Дополнено, {user.first_name}!"
+                    f"✅ Анкета сохранена для {target_user.first_name}!"
                 )
                 _schedule_delete(context, chat_id, sent.message_id, 60)
                 _schedule_delete(context, chat_id, update.message.message_id, 60)
                 _schedule_delete(context, chat_id, reply.message_id, 60)
                 return
+            else:
+                sent = await update.message.reply_text(
+                    "😔 В сообщении нет текста для анкеты."
+                )
+                _schedule_delete(context, chat_id, sent.message_id, 30)
+                _schedule_delete(context, chat_id, update.message.message_id, 30)
+                return
+        else:
+            sent = await update.message.reply_text(
+                "ℹ️ Чтобы сохранить анкету: ответь словом «Анкета» на сообщение человека с его рассказом о себе."
+            )
+            _schedule_delete(context, chat_id, sent.message_id, 30)
+            _schedule_delete(context, chat_id, update.message.message_id, 30)
+            return
 
     # Анкета: "о себе ..."
     if low.startswith("о себе") or low.startswith("про себе"):
