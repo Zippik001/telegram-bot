@@ -1754,7 +1754,7 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
 
 
 ALL_JOB_SUFFIXES = ["_weather", "_friday", "_evening", "_monday",
-                    "_report", "_news", "_cleanup", "_qt", "_quiz", "_photo"]
+                    "_report", "_news", "_cleanup", "_qt"]
 
 def _all_job_names(chat_id):
     return [str(chat_id)] + [f"{chat_id}{s}" for s in ALL_JOB_SUFFIXES]
@@ -1772,8 +1772,6 @@ def schedule_auto_jobs(jq, chat_id):
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
-    jq.run_daily(sched_quiz,               time=time(13,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_quiz")
-    jq.run_daily(sched_photo_day,          time=time(17,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_photo")
 
 def ensure_auto_jobs(jq, chat_id):
     """Якщо для чату ще немає запланованих jobs — запускає їх (авто-увімкнення за замовчуванням)."""
@@ -1790,8 +1788,6 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ Автоматические сообщения включены!\n\n"
         "🌤 08:00 — погода\n"
         "📰 08:05 — новость дня\n"
-        "🧠 13:00 — викторина\n"
-        "📸 17:00 — фото дня\n"
         "🌙 21:00 — как прошёл день\n"
         "📈 Вс 20:00 — еженедельный отчёт\n\n"
         "Выключить: /autooff"
