@@ -560,6 +560,122 @@ async def ask_ai(question: str) -> str:
         return "😔 Не удалось получить ответ от ИИ."
 
 
+
+PHOTO_DAY_PROMPTS = [
+    "📸 Фото дня: покажите чем вы занимаетесь прямо сейчас!",
+    "📸 Фото дня: что у вас на столе/рабочем месте сейчас?",
+    "📸 Фото дня: покажите своего питомца, если он у вас есть 🐾 (если нет — покажите чужого котика из интернета, никто не узнает)",
+    "📸 Фото дня: что вы сейчас едите или пьёте?",
+    "📸 Фото дня: вид из окна прямо сейчас",
+    "📸 Фото дня: ваш текущий плейлист или последняя прослушанная песня (скрин)",
+    "📸 Фото дня: последнее фото в галерее (да, прям последнее, без отбора 😏)",
+    "📸 Фото дня: ваше рабочее/учебное место сейчас",
+    "📸 Фото дня: что вы читаете или смотрите сейчас?",
+    "📸 Фото дня: покажите во что вы сегодня одеты",
+]
+
+async def sched_photo_day(context: ContextTypes.DEFAULT_TYPE):
+    """Раз в день — предложение поделиться фото."""
+    chat_id = context.job.data["chat_id"]
+    prompt = random.choice(PHOTO_DAY_PROMPTS)
+    await context.bot.send_message(chat_id, prompt)
+
+async def cmd_photoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ручной запуск фото дня."""
+    prompt = random.choice(PHOTO_DAY_PROMPTS)
+    await update.message.reply_text(prompt)
+
+
+async def ask_ai_quiz() -> dict | None:
+    """Генерирует квиз-вопрос с 4 вариантами через ИИ. Возвращает dict с question, options, correct_index."""
+    import os, json as _json
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        return None
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": (
+                "Ты генерируешь интересные викторинные вопросы на русском языке "
+                "для группы друзей в Братиславе. Темы: общие знания, кино, музыка, "
+                "наука, история, география, еда, странные факты — что-то одно случайное. "
+                "Вопрос должен быть интересным, не слишком простым и не слишком сложным. "
+                "Ответь СТРОГО в формате JSON без markdown и без пояснений:\n"
+                '{"question": "текст вопроса", "options": ["вариант1", "вариант2", "вариант3", "вариант4"], "correct_index": 0}\n'
+                "correct_index — индекс правильного варианта (0-3). "
+                "Варианты короткие — максимум 80 символов каждый. "
+                "Вопрос — максимум 250 символов."
+            )},
+            {"role": "user", "content": "Сгенерируй один вопрос для викторины."}
+        ],
+        "max_tokens": 400,
+        "temperature": 1.0,
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, json=payload, headers=headers,
+                              timeout=aiohttp.ClientTimeout(total=30)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    raw = data["choices"][0]["message"]["content"].strip()
+                    # Убираем возможные markdown-обёртки
+                    if raw.startswith("```"):
+                        raw = raw.split("```")[1]
+                        if raw.startswith("json"):
+                            raw = raw[4:]
+                    quiz = _json.loads(raw.strip())
+                    if "question" in quiz and "options" in quiz and "correct_index" in quiz:
+                        if len(quiz["options"]) == 4 and 0 <= quiz["correct_index"] <= 3:
+                            return quiz
+    except Exception as e:
+        logger.error(f"ask_ai_quiz: {e}")
+    return None
+
+async def sched_quiz(context: ContextTypes.DEFAULT_TYPE):
+    """Раз в день — викторина от ИИ с вариантами ответа (Telegram quiz poll)."""
+    chat_id = context.job.data["chat_id"]
+    quiz = await ask_ai_quiz()
+    if not quiz:
+        return
+    try:
+        sent = await context.bot.send_poll(
+            chat_id,
+            f"🧠 {quiz['question']}",
+            quiz["options"],
+            type="quiz",
+            correct_option_id=quiz["correct_index"],
+            is_anonymous=False,
+            open_period=120,
+        )
+        _schedule_delete(context, chat_id, sent.message_id, 7200)
+    except Exception as e:
+        logger.error(f"sched_quiz send_poll: {e}")
+
+async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ручной запуск викторины."""
+    chat_id = update.effective_chat.id
+    msg = await update.message.reply_text("🧠 Генерирую вопрос...")
+    quiz = await ask_ai_quiz()
+    if not quiz:
+        await msg.edit_text("😔 Не удалось сгенерировать вопрос. Попробуй позже.")
+        return
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    sent = await context.bot.send_poll(
+        chat_id,
+        f"🧠 {quiz['question']}",
+        quiz["options"],
+        type="quiz",
+        correct_option_id=quiz["correct_index"],
+        is_anonymous=False,
+        open_period=120,
+    )
+    _schedule_delete(context, chat_id, sent.message_id, 7200)
+
 async def _auto_delete(bot, chat_id: int, message_id: int, delay: int = 120):
     """Schedule deletion of a message after `delay` seconds."""
     await asyncio.sleep(delay)
@@ -1620,7 +1736,7 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
 
 
 ALL_JOB_SUFFIXES = ["_weather", "_friday", "_evening", "_monday",
-                    "_report", "_news", "_cleanup", "_qt"]
+                    "_report", "_news", "_cleanup", "_qt", "_quiz", "_photo"]
 
 def _all_job_names(chat_id):
     return [str(chat_id)] + [f"{chat_id}{s}" for s in ALL_JOB_SUFFIXES]
@@ -1638,6 +1754,8 @@ def schedule_auto_jobs(jq, chat_id):
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
+    jq.run_daily(sched_quiz,               time=time(13,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_quiz")
+    jq.run_daily(sched_photo_day,          time=time(17,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_photo")
 
 def ensure_auto_jobs(jq, chat_id):
     """Якщо для чату ще немає запланованих jobs — запускає їх (авто-увімкнення за замовчуванням)."""
@@ -1654,7 +1772,9 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ Автоматические сообщения включены!\n\n"
         "🌤 08:00 — погода\n"
         "📰 08:05 — новость дня\n"
-        "🌙 Каждый день 21:00 — как прошёл день\n"
+        "🧠 13:00 — викторина\n"
+        "📸 17:00 — фото дня\n"
+        "🌙 21:00 — как прошёл день\n"
         "📈 Вс 20:00 — еженедельный отчёт\n\n"
         "Выключить: /autooff"
     )
@@ -1788,20 +1908,13 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _menu_autostart(q, context)
 
     elif action == "clearevents":
-        ev_list = _events.get(chat_id, [])
-        for ev in ev_list:
-            if ev.get("msg_id"):
-                try:
-                    await context.bot.delete_message(chat_id, ev["msg_id"])
-                except Exception:
-                    pass
-        try:
-            await context.bot.unpin_all_chat_messages(chat_id)
-        except Exception:
-            pass
+        if not await _is_admin(context.bot, chat_id, q.from_user.id, q.from_user.username):
+            await q.answer("⛔ Только администраторы могут очищать ивенты.", show_alert=True)
+            return
         _events[chat_id] = []
         storage.save_events(_events)
-        await q.message.reply_text("🗑 Все ивенты удалены!")
+        await _refresh_events_message(context.bot, chat_id)
+        await q.message.reply_text("🗑 Все ивенты очищены. Закреплённое сообщение обновлено.")
 
 async def _menu_profiles(q, context):
     profiles = storage.load_profiles()
@@ -2136,9 +2249,12 @@ async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown")
     sent_msgs.append(m.message_id)
 
-    # 5. Evening poll (send as text since can't send poll and delete easily)
-    m = await context.bot.send_message(chat_id,
-        "🧪 [ТЕСТ] 🌙 Вечерний опрос: «Как прошёл ваш день?» (обычно это опрос)")
+    # 5. Evening poll (real Telegram poll)
+    m = await context.bot.send_poll(
+        chat_id, "🧪 [ТЕСТ] 🌙 Как прошёл ваш день?",
+        ["🔥 Отлично!", "😊 Хорошо", "😐 Нормально", "😔 Тяжеловато", "🤦 Лучше не спрашивай"],
+        is_anonymous=False, allows_multiple_answers=False
+    )
     sent_msgs.append(m.message_id)
 
     # 6. Weekly report
@@ -2155,12 +2271,8 @@ async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         m = await context.bot.send_message(chat_id, "🧪 [ТЕСТ] 📈 Еженедельный отчёт: статистика пустая")
     sent_msgs.append(m.message_id)
 
-    # 7. Random question
-    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] ❓ {_r.choice(RANDOM_QUESTIONS)}")
-    sent_msgs.append(m.message_id)
-
-    # 8. Discussion topic
-    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] {_r.choice(DISCUSSION_TOPICS)}", parse_mode="Markdown")
+    # 7. Random question/topic
+    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] {_r.choice(all_qt_items())}", parse_mode="Markdown")
     sent_msgs.append(m.message_id)
 
     status_msg = await context.bot.send_message(chat_id, "✅ Все авто-сообщения отправлены! Удаляются через 10 секунд...")
@@ -2261,6 +2373,8 @@ def main():
     app.add_handler(CommandHandler("listmembers",   cmd_listmembers))
     app.add_handler(CommandHandler("cleanupmembers", cmd_cleanup_members))
     app.add_handler(CommandHandler("testbot",       cmd_testbot))
+    app.add_handler(CommandHandler("quiz",          cmd_quiz))
+    app.add_handler(CommandHandler("photoday",      cmd_photoday))
 
     logger.info("Бот запущен!")
     app.run_polling(
