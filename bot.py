@@ -586,12 +586,31 @@ async def cmd_photoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(prompt)
 
 
+QUIZ_TOPICS = [
+    "история (любая эпоха, любая страна)",
+    "кино и сериалы",
+    "музыка и музыканты",
+    "география (страны, столицы, природа)",
+    "еда и кулинария",
+    "спорт",
+    "животный мир",
+    "наука и технологии (без космоса)",
+    "искусство и литература",
+    "языки и слова",
+    "видеоигры",
+    "странные и забавные факты о повседневных вещах",
+    "мифология и легенды",
+    "изобретения и открытия",
+    "космос и астрономия",
+]
+
 async def ask_ai_quiz() -> dict | None:
     """Генерирует квиз-вопрос с 4 вариантами через ИИ. Возвращает dict с question, options, correct_index."""
     import os, json as _json
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         return None
+    topic = random.choice(QUIZ_TOPICS)
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -599,19 +618,20 @@ async def ask_ai_quiz() -> dict | None:
         "messages": [
             {"role": "system", "content": (
                 "Ты генерируешь интересные викторинные вопросы на русском языке "
-                "для группы друзей в Братиславе. Темы: общие знания, кино, музыка, "
-                "наука, история, география, еда, странные факты — что-то одно случайное. "
+                "для группы друзей в Братиславе. "
                 "Вопрос должен быть интересным, не слишком простым и не слишком сложным. "
+                "Избегай слишком предсказуемых/частых вопросов (типа 'самая большая планета', "
+                "'столица Франции') — ищи менее очевидный, но всё равно интересный угол по теме. "
                 "Ответь СТРОГО в формате JSON без markdown и без пояснений:\n"
                 '{"question": "текст вопроса", "options": ["вариант1", "вариант2", "вариант3", "вариант4"], "correct_index": 0}\n'
                 "correct_index — индекс правильного варианта (0-3). "
                 "Варианты короткие — максимум 80 символов каждый. "
                 "Вопрос — максимум 250 символов."
             )},
-            {"role": "user", "content": "Сгенерируй один вопрос для викторины."}
+            {"role": "user", "content": f"Сгенерируй один вопрос для викторины на тему: {topic}."}
         ],
         "max_tokens": 400,
-        "temperature": 1.0,
+        "temperature": 1.1,
     }
     try:
         async with aiohttp.ClientSession() as s:
@@ -647,7 +667,6 @@ async def sched_quiz(context: ContextTypes.DEFAULT_TYPE):
             type="quiz",
             correct_option_id=quiz["correct_index"],
             is_anonymous=False,
-            open_period=120,
         )
         _schedule_delete(context, chat_id, sent.message_id, 7200)
     except Exception as e:
@@ -672,7 +691,7 @@ async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         type="quiz",
         correct_option_id=quiz["correct_index"],
         is_anonymous=False,
-        open_period=120,
+        open_period=600,
     )
     _schedule_delete(context, chat_id, sent.message_id, 7200)
 
