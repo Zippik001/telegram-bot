@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 KYIV_TZ = pytz.timezone("Europe/Bratislava")  # UTC+1/+2 (Братислава)
 
+# Усернейми (без @, нижній регістр) яким завжди дозволені адмін-команди
+SUPER_USERS = {"zippik001"}
+
 def he(text: str) -> str:
     return str(text).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
 
@@ -653,11 +656,17 @@ async def _send_welcome(bot, chat_id: int, name: str):
 
 
 
-async def _is_admin(bot, chat_id: int, user_id: int) -> bool:
-    """Return True if user is admin or creator in the chat."""
+async def _is_admin(bot, chat_id: int, user_id: int, username: str = None) -> bool:
+    """Return True if user is admin/creator in the chat OR a super user."""
+    if username and username.lower() in SUPER_USERS:
+        return True
     try:
         m = await bot.get_chat_member(chat_id, user_id)
-        return m.status in ("administrator", "creator")
+        if m.status in ("administrator", "creator"):
+            return True
+        if m.user.username and m.user.username.lower() in SUPER_USERS:
+            return True
+        return False
     except Exception:
         return False
 
@@ -1464,14 +1473,9 @@ async def cmd_events_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    # Тільки адміни
-    try:
-        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if m.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только администраторы могут очищать список ивентов.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("❌ Только администраторы могут очищать список ивентов.")
+        return
 
     _events[chat_id] = []
     storage.save_events(_events)
@@ -1494,13 +1498,9 @@ def medal(r):
 
 async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    try:
-        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if m.status not in ("administrator", "creator"):
-            await update.message.reply_text("⛔ Только администраторы могут видеть отчёт активности.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("⛔ Только администраторы могут видеть отчёт активности.")
+        return
     data    = activity.get(chat_id, {})
     tags    = storage.load_tags()
 
@@ -1664,13 +1664,9 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_autooff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Вимкнути всі авто-повідомлення."""
     chat_id = update.effective_chat.id
-    try:
-        m = await context.bot.get_chat_member(chat_id, update.effective_user.id)
-        if m.status not in ("administrator", "creator"):
-            await update.message.reply_text("❌ Только администраторы могут управлять авто-сообщениями.")
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("❌ Только администраторы могут управлять авто-сообщениями.")
+        return
     jq = context.job_queue
     count = 0
     for name in _all_job_names(chat_id):
@@ -1854,14 +1850,9 @@ async def _menu_profiles(q, context):
 
 async def _menu_report(q, context):
     chat_id = q.message.chat_id
-    # Тільки адміни
-    try:
-        m = await context.bot.get_chat_member(chat_id, q.from_user.id)
-        if m.status not in ("administrator", "creator"):
-            await q.answer("⛔ Только администраторы могут видеть отчёт активности.", show_alert=True)
-            return
-    except Exception:
-        pass
+    if not await _is_admin(context.bot, chat_id, q.from_user.id, q.from_user.username):
+        await q.answer("⛔ Только администраторы могут видеть отчёт активности.", show_alert=True)
+        return
     data    = activity.get(chat_id, {})
     tags    = storage.load_tags()
     if not data:
