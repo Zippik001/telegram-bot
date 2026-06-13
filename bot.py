@@ -312,8 +312,38 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     storage.register_user(user)
 
+    # Автоматично запускаємо jobs якщо ще не запущені і не вимкнені явно
+    if storage.get_autorun(chat_id) and not context.job_queue.get_jobs_by_name(f"{chat_id}_weather"):
+        schedule_auto_jobs(context.job_queue, chat_id)
+
     text = (update.message.text or "").strip()
     low  = text.lower()
+
+    # ── Reply на повідомлення з анкетою — дописати текст до анкети ──
+    reply = update.message.reply_to_message
+    if reply and reply.from_user and reply.from_user.is_bot:
+        reply_text = reply.text or ""
+        is_anketa_msg = (
+            reply_text.startswith("✅ Сохранено")
+            or reply_text.startswith("👤")
+        )
+        if is_anketa_msg and text:
+            profiles = storage.load_profiles()
+            existing = profiles.get(user.id) or profiles.get(str(user.id))
+            if existing:
+                profiles.pop(str(user.id), None)
+                existing["text"] = (existing.get("text", "") + "\n" + text).strip()
+                existing["tg_name"] = user.first_name
+                existing["username"] = user.username or existing.get("username", "")
+                profiles[user.id] = existing
+                storage.save_profiles(profiles)
+                sent = await update.message.reply_text(
+                    f"✅ Дополнено, {user.first_name}!"
+                )
+                _schedule_delete(context, chat_id, sent.message_id, 60)
+                _schedule_delete(context, chat_id, update.message.message_id, 60)
+                _schedule_delete(context, chat_id, reply.message_id, 60)
+                return
 
     # Анкета: "о себе ..."
     if low.startswith("о себе") or low.startswith("про себе"):
@@ -1574,21 +1604,36 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
         activity[chat_id][uid]["count"] = 0
 
 
-async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    jq      = context.job_queue
-    all_names = [str(chat_id), f"{chat_id}_weather", f"{chat_id}_friday",
-                 f"{chat_id}_evening", f"{chat_id}_monday", f"{chat_id}_report",
-                 f"{chat_id}_news", f"{chat_id}_cleanup", f"{chat_id}_qt"]
-    for name in all_names:
+ALL_JOB_SUFFIXES = ["_weather", "_friday", "_evening", "_monday",
+                    "_report", "_news", "_cleanup", "_qt"]
+
+def _all_job_names(chat_id):
+    return [str(chat_id)] + [f"{chat_id}{s}" for s in ALL_JOB_SUFFIXES]
+
+def _remove_jobs(jq, chat_id):
+    for name in _all_job_names(chat_id):
         for job in jq.get_jobs_by_name(name):
             job.schedule_removal()
 
+def schedule_auto_jobs(jq, chat_id):
+    """Планує всі авто-повідомлення для чату. Видаляє старі перед створенням нових."""
+    _remove_jobs(jq, chat_id)
     jq.run_daily(sched_weather,            time=time(8,0,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_weather")
     jq.run_daily(sched_morning_news,       time=time(8,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_news")
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
+
+def ensure_auto_jobs(jq, chat_id):
+    """Якщо для чату ще немає запланованих jobs — запускає їх (авто-увімкнення за замовчуванням)."""
+    if not jq.get_jobs_by_name(f"{chat_id}_weather"):
+        schedule_auto_jobs(jq, chat_id)
+        storage.set_autorun(chat_id, True)
+
+async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    schedule_auto_jobs(context.job_queue, chat_id)
+    storage.set_autorun(chat_id, True)
 
     sent = await update.message.reply_text(
         "✅ Автоматические сообщения включены!\n\n"
@@ -1612,14 +1657,12 @@ async def cmd_autooff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
     jq = context.job_queue
-    all_names = [str(chat_id), f"{chat_id}_weather", f"{chat_id}_friday",
-                 f"{chat_id}_evening", f"{chat_id}_monday", f"{chat_id}_report",
-                 f"{chat_id}_news", f"{chat_id}_cleanup", f"{chat_id}_qt"]
     count = 0
-    for name in all_names:
+    for name in _all_job_names(chat_id):
         for job in jq.get_jobs_by_name(name):
             job.schedule_removal()
             count += 1
+    storage.set_autorun(chat_id, False)
     sent = await update.message.reply_text(
         f"⏹ Все авто-сообщения отключены ({count} задач удалено).\n\n"
         "Включить снова: /autostart"
@@ -1924,8 +1967,9 @@ async def cmd_addmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "ℹ️ Как использовать:\n\n"
             "• /addmember @username — добавить одного\n"
-            "• /addmember @user1 @user2 — добавить нескольких\n"
-            "• Ответ на сообщение + /addmember — добавить автора"
+            "• /addmember @user1 @user2 @user3 ... — добавить сразу всех (можно вставить весь список тегов из чата!)\n"
+            "• Ответ на сообщение + /addmember — добавить автора\n\n"
+            "💡 Совет: собери все @username участников в одно сообщение и отправь команду — добавятся все за раз."
         )
         return
 

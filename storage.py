@@ -12,7 +12,40 @@ PROFILES_FILE = os.path.join(DATA_DIR, "profiles.json")
 TAGS_FILE     = os.path.join(DATA_DIR, "tags.json")
 EVENTS_FILE   = os.path.join(DATA_DIR, "events.json")
 
+AUTORUN_FILE  = os.path.join(DATA_DIR, "autorun.json")
+
 logger.info(f"Storage dir: {DATA_DIR}")
+
+# ── Autorun (увімк/вимк авто-повідомлень по чатах) ────
+
+_autorun_cache: dict | None = None
+
+def _load_autorun() -> dict:
+    global _autorun_cache
+    if _autorun_cache is not None:
+        return _autorun_cache
+    try:
+        with open(AUTORUN_FILE, encoding="utf-8") as f:
+            _autorun_cache = json.load(f)
+    except Exception:
+        _autorun_cache = {}
+    return _autorun_cache
+
+def get_autorun(chat_id) -> bool:
+    """За замовчуванням True (авто-повідомлення увімкнені)."""
+    data = _load_autorun()
+    return data.get(str(chat_id), True)
+
+def set_autorun(chat_id, value: bool):
+    global _autorun_cache
+    data = _load_autorun()
+    data[str(chat_id)] = value
+    _autorun_cache = data
+    try:
+        with open(AUTORUN_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"set_autorun: {e}")
 
 # ── Profiles ──────────────────────────────────
 
@@ -58,9 +91,11 @@ def load_tags() -> dict:
         return {}
 
 def save_tags(data: dict):
+    global _tags_cache
     try:
         with open(TAGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        _tags_cache = dict(data)
     except Exception as e:
         logger.error(f"save_tags: {e}")
 
