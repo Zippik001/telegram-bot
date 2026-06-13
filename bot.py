@@ -141,17 +141,21 @@ DAY_EMOJI = ["📅","📅","📅","📅","🎉","🎉","😴"]
 MONTHS_RU = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"]
 
 def next_date_for_weekday(weekday_index: int) -> date:
-    """Return the next upcoming date for a given weekday (0=Mon ... 6=Sun)."""
+    """Return the next date for a given weekday (0=Mon ... 6=Sun), including today."""
     today = datetime.now(KYIV_TZ).date()
     days_ahead = (weekday_index - today.weekday()) % 7
-    if days_ahead == 0:
-        days_ahead = 7
     return today + timedelta(days=days_ahead)
 
 def day_label(weekday_index: int) -> str:
     """e.g. 'Пт 13 июн'"""
     d = next_date_for_weekday(weekday_index)
     return f"{DAY_EMOJI[weekday_index]} {DAYS_RU[weekday_index]} {d.day} {MONTHS_RU[d.month-1]}"
+
+def sorted_weekday_indices() -> list[int]:
+    """Возвращает индексы дней недели (0-6), отсортированные от самой близкой даты к дальней.
+    Сегодня будет первым."""
+    today_wd = datetime.now(KYIV_TZ).weekday()
+    return [(today_wd + offset) % 7 for offset in range(7)]
 
 def custom_date_weekday_name(date_str: str) -> str:
     """Convert dd.mm.yyyy string to weekday name."""
@@ -1054,7 +1058,7 @@ async def cb_etype(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     days_list = DAYS_RU
-    day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_{etype}_{i}")] for i in range(7)]
+    day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_{etype}_{i}")] for i in sorted_weekday_indices()]
     day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data=f"eday_custom_date_{etype}")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
     etype_label = EVENT_TYPES_RU.get(etype, etype)
@@ -1221,7 +1225,7 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     pending["custom_title"] = update.message.text
     pending["title_msg_id"] = update.message.message_id
-    day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_custom_{i}")] for i in range(7)]
+    day_rows = [[InlineKeyboardButton(day_label(i), callback_data=f"eday_custom_{i}")] for i in sorted_weekday_indices()]
     day_rows.append([InlineKeyboardButton("📆 Своя дата (дд.мм.гггг)", callback_data="eday_custom_date_custom")])
     day_rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
     sent = await update.message.reply_text(
@@ -1306,7 +1310,7 @@ async def cb_eday_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Сохраняем message_id общего сообщения: { chat_id: message_id }
-_events_msg: dict = {}
+_events_msg: dict = storage.load_events_msg()
 
 async def _refresh_events_message(bot, chat_id):
     ev_list = _events.get(chat_id, [])
@@ -1322,7 +1326,7 @@ async def _refresh_events_message(bot, chat_id):
         except Exception:
             pass
 
-    # Unpin and DELETE old message if it exists
+    # Unpin and DELETE old message if it exists (e.g. couldn't edit — too old, deleted, or bot restarted)
     if msg_id:
         try:
             await bot.unpin_chat_message(chat_id, msg_id)
@@ -1334,6 +1338,7 @@ async def _refresh_events_message(bot, chat_id):
             pass
     sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
     _events_msg[chat_id] = sent.message_id
+    storage.save_events_msg(_events_msg)
     try:
         await bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
     except Exception as e:
@@ -1618,6 +1623,59 @@ async def cmd_clear_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _refresh_events_message(context.bot, chat_id)
 
     msg = await update.message.reply_text("🗑 Все ивенты очищены. Закреплённое сообщение обновлено.")
+    await asyncio.sleep(3)
+    try:
+        await update.message.delete()
+        await msg.delete()
+    except Exception:
+        pass
+
+async def cmd_fix_pinned_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сканирует закреплённые сообщения чата и удаляет дубликаты сообщения с ивентами,
+    оставляя только последнее (актуальное)."""
+    chat_id = update.effective_chat.id
+
+    if not await _is_admin(context.bot, chat_id, update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("❌ Только администраторы могут это делать.")
+        return
+
+    chat = await context.bot.get_chat(chat_id)
+    pinned = chat.pinned_message
+
+    current_msg_id = _events_msg.get(chat_id)
+    removed = 0
+
+    # Telegram отдаёт только ОДНО (последнее) закреплённое сообщение через get_chat.
+    # Если оно похоже на сообщение с ивентами, но не совпадает с тем, что бот считает актуальным —
+    # значит это старый дубликат, который остался после перезапуска. Убираем его.
+    if pinned and pinned.text:
+        looks_like_events = (
+            pinned.text.startswith("📋")
+            or "ивент" in pinned.text.lower()
+            or "ивентов" in pinned.text.lower()
+        )
+        if looks_like_events and pinned.message_id != current_msg_id:
+            try:
+                await context.bot.unpin_chat_message(chat_id, pinned.message_id)
+            except Exception:
+                pass
+            try:
+                await context.bot.delete_message(chat_id, pinned.message_id)
+                removed += 1
+            except Exception:
+                pass
+
+    # Пересоздаём/обновляем актуальное сообщение с ивентами и закрепляем его
+    await _refresh_events_message(context.bot, chat_id)
+
+    if removed:
+        msg = await update.message.reply_text(
+            f"🗑 Найден и удалён старый дубликат закреплённого сообщения с ивентами ({removed})."
+        )
+    else:
+        msg = await update.message.reply_text(
+            "✅ Дубликатов не найдено — закреплённое сообщение актуально."
+        )
     await asyncio.sleep(3)
     try:
         await update.message.delete()
@@ -2370,6 +2428,7 @@ def main():
     app.add_handler(CommandHandler("event",         cmd_event))
     app.add_handler(CommandHandler("events",        cmd_events_list))
     app.add_handler(CommandHandler("clearevents",   cmd_clear_events))
+    app.add_handler(CommandHandler("fixpinned",     cmd_fix_pinned_events))
     app.add_handler(CommandHandler("weather",       cmd_weather))
     app.add_handler(CommandHandler("question",      cmd_question))
     app.add_handler(CommandHandler("topic",         cmd_topic))

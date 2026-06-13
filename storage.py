@@ -132,3 +132,24 @@ def save_events(data: dict):
             json.dump({str(k): v for k, v in data.items()}, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"save_events: {e}")
+
+# ── Events pinned-message tracking (chat_id -> message_id) ───
+
+EVENTS_MSG_FILE = os.path.join(DATA_DIR, "events_msg.json")
+
+def load_events_msg() -> dict:
+    try:
+        with open(EVENTS_MSG_FILE, encoding="utf-8") as f:
+            return {int(k): v for k, v in json.load(f).items()}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.error(f"load_events_msg: {e}")
+        return {}
+
+def save_events_msg(data: dict):
+    try:
+        with open(EVENTS_MSG_FILE, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in data.items()}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"save_events_msg: {e}")
