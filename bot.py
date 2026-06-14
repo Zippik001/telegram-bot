@@ -38,6 +38,9 @@ def next_event_id():
 activity: dict = defaultdict(dict)
 _challenges: dict = {}
 
+# Бали за квіз: { chat_id: { user_id: {"name": ..., "score": int} } }
+_quiz_scores: dict = defaultdict(dict)
+
 # Язык чата: { chat_id: "ru" }
 _lang: dict = {}
 
@@ -318,6 +321,9 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     storage.register_user(user)
+
+    # Оновлюємо час останнього повідомлення
+    _last_message_time[chat_id] = datetime.now(KYIV_TZ).timestamp()
 
     # Автоматично запускаємо jobs якщо ще не запущені і не вимкнені явно
     if storage.get_autorun(chat_id) and not context.job_queue.get_jobs_by_name(f"{chat_id}_weather"):
@@ -672,6 +678,11 @@ async def sched_quiz(context: ContextTypes.DEFAULT_TYPE):
             correct_option_id=quiz["correct_index"],
             is_anonymous=False,
         )
+        # Зберігаємо для нарахування балів
+        context.bot_data[f"quiz_{sent.poll.id}"] = {
+            "chat_id": chat_id,
+            "correct_option_id": quiz["correct_index"],
+        }
         _schedule_delete(context, chat_id, sent.message_id, 7200)
     except Exception as e:
         logger.error(f"sched_quiz send_poll: {e}")
@@ -696,6 +707,10 @@ async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         correct_option_id=quiz["correct_index"],
         is_anonymous=False,
     )
+    context.bot_data[f"quiz_{sent.poll.id}"] = {
+        "chat_id": chat_id,
+        "correct_option_id": quiz["correct_index"],
+    }
     _schedule_delete(context, chat_id, sent.message_id, 7200)
 
 async def _auto_delete(bot, chat_id: int, message_id: int, delay: int = 120):
@@ -1811,8 +1826,77 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
         activity[chat_id][uid]["count"] = 0
 
 
+# ── Перевірка тиші в чаті ─────────────────────────────────────────────────────
+
+async def generate_bender_icebreaker() -> str:
+    """ШІ генерує повідомлення-пробивач тиші в стилі Бендера."""
+    prompts = [
+        "Напиши короткое сообщение (2-4 предложения) от имени Бендера который замечает тишину в чате друзей. "
+        "Он начинает разговор сам — задаёт вопрос типа 'чем занимаетесь', делится выдуманным фактом о себе, "
+        "или предлагает что-то сделать вместе (купаться, пить пиво, идти гулять). "
+        "Стиль: циничный, самовлюблённый, смешной. Пиши на русском. Без вступлений — сразу текст.",
+    ]
+    return await ask_ai(random.choice(prompts))
+
+async def sched_anketa_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Щодня о 17:00 — нагадування заповнити анкету тим хто цього не зробив."""
+    chat_id = context.job.data["chat_id"]
+    tags = storage.load_tags()
+    profiles = storage.load_profiles()
+
+    # Знаходимо тих хто є в тегах але не має анкети
+    missing = []
+    for uid_str, u in tags.items():
+        uid = int(uid_str)
+        if uid not in profiles and str(uid) not in profiles:
+            mention = f"@{u['username']}" if u.get("username") else u["name"]
+            missing.append(mention)
+
+    if not missing:
+        return  # Всі заповнили — не спамимо
+
+    names_str = ", ".join(missing[:10])
+    if len(missing) > 10:
+        names_str += f" и ещё {len(missing)-10}"
+
+    text = (
+        f"📋 Бендер провёл перекличку и выяснил:\n\n"
+        f"{names_str} — анкета не заполнена!\n\n"
+        f"Я не буду просить дважды... ладно, буду. Заполните анкету:\n"
+        f"Напиши в чат: о себе [расскажи кто ты, откуда, чем занимаешься]\n\n"
+        f"Это займёт 30 секунд. Даже я, Бендер, заполнил бы быстрее — "
+        f"если бы у меня была анкета. И душа."
+    )
+    sent = await context.bot.send_message(chat_id, text)
+    _schedule_delete(context, chat_id, sent.message_id, 7200)
+
+
+async def sched_check_silence(context: ContextTypes.DEFAULT_TYPE):
+    """Кожні 5 годин — якщо тиша > 5 годин, Бендер сам починає розмову через ШІ."""
+    chat_id = context.job.data["chat_id"]
+    now = datetime.now(KYIV_TZ).timestamp()
+    last = _last_message_time.get(chat_id)
+
+    # Тільки якщо ніхто не писав більше 5 годин і зараз між 9:00 і 23:00
+    hour = datetime.now(KYIV_TZ).hour
+    if hour < 9 or hour >= 23:
+        return
+    if last is None or (now - last) < 7200:
+        return
+
+    try:
+        text = await generate_bender_icebreaker()
+        sent = await context.bot.send_message(chat_id, f"🤖 {text}")
+        # Оновлюємо час щоб не спамити
+        _last_message_time[chat_id] = datetime.now(KYIV_TZ).timestamp()
+        # Авто-видалення через 6 годин
+        _schedule_delete(context, chat_id, sent.message_id, 21600)
+    except Exception as e:
+        logger.error(f"sched_check_silence: {e}")
+
+
 ALL_JOB_SUFFIXES = ["_weather", "_friday", "_evening", "_monday",
-                    "_report", "_news", "_cleanup", "_qt"]
+                    "_report", "_news", "_cleanup", "_qt", "_silence", "_anketa"]
 
 def _all_job_names(chat_id):
     return [str(chat_id)] + [f"{chat_id}{s}" for s in ALL_JOB_SUFFIXES]
@@ -1830,6 +1914,8 @@ def schedule_auto_jobs(jq, chat_id):
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
+    jq.run_daily(sched_anketa_reminder,       time=time(17,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_anketa")
+    jq.run_repeating(sched_check_silence,     interval=1800, first=300,          data={"chat_id":chat_id}, name=f"{chat_id}_silence")
 
 def ensure_auto_jobs(jq, chat_id):
     """Якщо для чату ще немає запланованих jobs — запускає їх (авто-увімкнення за замовчуванням)."""
@@ -1848,7 +1934,7 @@ async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📰 08:05 — новость дня\n"
         "🌙 21:00 — как прошёл день\n"
         "📈 Вс 20:00 — еженедельный отчёт\n\n"
-        "Выключить: /autooff"
+        "Выключить: /autooff\n🌵 Авто-мем при тишине > 2 часов: включён"
     )
     _schedule_delete(context, chat_id, sent.message_id, 60)
     _schedule_delete(context, chat_id, update.message.message_id, 60)
@@ -2347,6 +2433,37 @@ async def cmd_testbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] {_r.choice(all_qt_items())}", parse_mode="Markdown")
     sent_msgs.append(m.message_id)
 
+    # 8. Квіз від ШІ
+    quiz = await ask_ai_quiz()
+    if quiz:
+        m = await context.bot.send_poll(
+            chat_id, f"🧪 [ТЕСТ] 🧠 {quiz['question']}",
+            quiz["options"], type="quiz",
+            correct_option_id=quiz["correct_index"], is_anonymous=False,
+        )
+        sent_msgs.append(m.message_id)
+
+    # 9. Пробивач тиші від ШІ
+    icebreaker = await generate_bender_icebreaker()
+    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] 🤖 {icebreaker}")
+    sent_msgs.append(m.message_id)
+
+    # 10. Нагадування анкети
+    tags = storage.load_tags()
+    profiles = storage.load_profiles()
+    missing_count = sum(1 for uid_str in tags if int(uid_str) not in profiles and uid_str not in profiles)
+    if missing_count > 0:
+        m = await context.bot.send_message(chat_id,
+            f"🧪 [ТЕСТ] 📋 Бендер провёл перекличку — {missing_count} человек всё ещё без анкеты!\n\n"
+            f"Напиши в чат: *о себе* и расскажи кто ты.", parse_mode="Markdown")
+    else:
+        m = await context.bot.send_message(chat_id, "🧪 [ТЕСТ] 📋 Все участники заполнили анкету — Бендер доволен!")
+    sent_msgs.append(m.message_id)
+
+    # 11. Фото дня
+    m = await context.bot.send_message(chat_id, f"🧪 [ТЕСТ] {_r.choice(PHOTO_DAY_PROMPTS)}")
+    sent_msgs.append(m.message_id)
+
     status_msg = await context.bot.send_message(chat_id, "✅ Все авто-сообщения отправлены! Удаляются через 10 секунд...")
     sent_msgs.append(status_msg.message_id)
 
@@ -2376,6 +2493,26 @@ async def auto_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not text.startswith("/"):
         return
     _schedule_delete(context, update.effective_chat.id, update.message.message_id, 60)
+
+
+async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Нараховує бали за правильну відповідь в quiz poll."""
+    answer = update.poll_answer
+    if not answer:
+        return
+    poll_id = answer.poll_id
+    user = answer.user
+    # Знаходимо правильний варіант з збережених даних
+    quiz_data = context.bot_data.get(f"quiz_{poll_id}")
+    if not quiz_data:
+        return
+    chat_id = quiz_data["chat_id"]
+    correct = quiz_data["correct_option_id"]
+    if answer.option_ids and answer.option_ids[0] == correct:
+        if user.id not in _quiz_scores[chat_id]:
+            _quiz_scores[chat_id][user.id] = {"name": user.first_name, "score": 0}
+        _quiz_scores[chat_id][user.id]["name"] = user.first_name
+        _quiz_scores[chat_id][user.id]["score"] += 1
 
 
 def main():
@@ -2447,11 +2584,13 @@ def main():
     app.add_handler(CommandHandler("cleanupmembers", cmd_cleanup_members))
     app.add_handler(CommandHandler("testbot",       cmd_testbot))
     app.add_handler(CommandHandler("quiz",          cmd_quiz))
+    from telegram.ext import PollAnswerHandler
+    app.add_handler(PollAnswerHandler(handle_poll_answer))
     app.add_handler(CommandHandler("photoday",      cmd_photoday))
 
     logger.info("Бот запущен!")
     app.run_polling(
-        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
+        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member", "poll_answer"]
     )
 
 
