@@ -1731,18 +1731,11 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _is_admin(context.bot, chat_id, update.effective_user.id, update.effective_user.username):
         await update.message.reply_text("⛔ Только администраторы могут видеть отчёт активности.")
         return
-    data    = activity.get(chat_id, {})
-    tags    = storage.load_tags()
+    data = activity.get(chat_id, {})
+    tags = storage.load_tags()
 
     if not data:
-        if tags:
-            names = [u["name"] for u in tags.values()]
-            await update.message.reply_text(
-                f"📭 Статистика пустая — никто не писал с момента /autostart.\n\n"
-                f"👥 Известные участники: {', '.join(names)}"
-            )
-        else:
-            await update.message.reply_text("📭 Статистика пустая. Запусти /autostart и начни счёт.")
+        await update.message.reply_text("📭 Статистика пустая.")
         return
 
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
@@ -1751,17 +1744,35 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [f"📈 Отчёт активности\n(сообщений: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
-        bl  = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10)
         pct = round(u["count"]/total*100) if total else 0
-        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ. ({pct}%)\n{'█'*bl+'░'*(10-bl)}")
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ. ({pct}%)")
 
     active_ids = {uid for uid, _ in active}
     silent_tags = [u for uid, u in tags.items() if int(uid) not in active_ids]
     if silent_tags:
-        lines.append("\n👻 Молчат с последнего /autostart:")
+        lines.append("\n👻 Молчат:")
         for u in silent_tags:
             mention = f"@{u['username']}" if u.get("username") else u["name"]
-            lines.append(f"  • {u['name']} ({mention})")
+            lines.append(f"  • {mention}")
+
+    # Нагороди
+    lines.append("\n🏆 Лидеры:")
+    if active:
+        lines.append(f"💬 {active[0][1]['name']} — 🎖 «Болтун»!")
+    scores = _quiz_scores.get(chat_id, {})
+    if scores:
+        top_quiz = max(scores.items(), key=lambda x: x[1]["score"])
+        lines.append(f"🧠 {top_quiz[1]['name']} — {top_quiz[1]['score']} ответов — 🎓 «Умник»!")
+    ev_authors: dict = {}
+    for ev in _events.get(chat_id, []):
+        aid = ev.get("author_id")
+        if aid:
+            if aid not in ev_authors:
+                ev_authors[aid] = {"name": ev.get("author","?"), "count": 0}
+            ev_authors[aid]["count"] += 1
+    if ev_authors:
+        top_ev = max(ev_authors.items(), key=lambda x: x[1]["count"])
+        lines.append(f"🎉 {top_ev[1]['name']} — {top_ev[1]['count']} ивентов — 🏅 «Организатор»!")
 
     await update.message.reply_text("\n".join(lines))
 
