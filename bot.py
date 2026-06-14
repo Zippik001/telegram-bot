@@ -2027,6 +2027,44 @@ async def cmd_autooff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _schedule_delete(context, chat_id, update.message.message_id, 10)
 
 
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📖 Все команды бота:\n\n"
+        "/start — Главное меню Бендера\n"
+        "/event — Предложить ивент\n"
+        "/events — Активные ивенты\n"
+        "/profile — Моя анкета\n"
+        "/profiles — Анкеты участников\n"
+        "/weather — Погода\n"
+        "/question — Провокационный вопрос\n"
+        "/topic — Тема для разговора\n"
+        "/quiz — Квиз от ИИ\n"
+        "/photoday — Фото дня\n\n"
+        "👮 Команды для админов:\n\n"
+        "/report — Отчёт активности\n"
+        "/gather — Тегнуть всех\n"
+        "/addmember — Добавить в список\n"
+        "/removemember — Удалить из списка\n"
+        "/listmembers — Список участников\n"
+        "/cleanupmembers — Очистить вышедших\n"
+        "/clearevents — Удалить все ивенты\n"
+        "/autostart — Включить авто-сообщения\n"
+        "/autooff — Выключить авто-сообщения\n"
+        "/testbot — Тест авто-сообщений\n\n"
+        "✍️ Теги (слова без команды):\n\n"
+        "Бендер / Бляшанка / Bender — открыть меню\n"
+        "Бендер, [вопрос] — спросить ИИ\n"
+        "о себе [текст] — сохранить анкету\n"
+        "мой инстаграм @ник — добавить Instagram\n"
+        "моя работа [текст] — добавить место работы\n"
+        "Анкета (reply) — сохранить анкету из чужого сообщения\n"
+        "Анонім [текст] — анонимное сообщение\n"
+        "Видали (reply) — удалить сообщение (админ)"
+    )
+    sent = await update.message.reply_text(text)
+    _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🤖✨ Бендер Сгибатель Родригес к вашим услугам!\n\n"
@@ -2628,7 +2666,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_ev_vote,     pattern=r"^ev_(yes|no|change)_\d+$"))
 
     app.add_handler(CommandHandler("start",         cmd_start))
-    app.add_handler(CommandHandler("help",          cmd_start))
+    app.add_handler(CommandHandler("help",          cmd_help))
     app.add_handler(CommandHandler("event",         cmd_event))
     app.add_handler(CommandHandler("events",        cmd_events_list))
     app.add_handler(CommandHandler("clearevents",   cmd_clear_events))
