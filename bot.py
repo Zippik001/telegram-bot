@@ -1957,7 +1957,7 @@ async def sched_check_silence(context: ContextTypes.DEFAULT_TYPE):
         # Оновлюємо час щоб не спамити
         _last_message_time[chat_id] = datetime.now(KYIV_TZ).timestamp()
         # Авто-видалення через 6 годин
-        _schedule_delete(context, chat_id, sent.message_id, 21600)
+        _schedule_delete(context, chat_id, sent.message_id, 7200)
     except Exception as e:
         logger.error(f"sched_check_silence: {e}")
 
