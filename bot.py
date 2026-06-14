@@ -2058,8 +2058,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "мой инстаграм @ник — добавить Instagram\n"
         "моя работа [текст] — добавить место работы\n"
         "Анкета (reply) — сохранить анкету из чужого сообщения\n"
-        "Анонім [текст] — анонимное сообщение\n"
-        "Видали (reply) — удалить сообщение (админ)"
+        "Анонім [текст] — анонимное сообщение"
     )
     sent = await update.message.reply_text(text)
     _schedule_delete(context, update.effective_chat.id, sent.message_id, 120)
