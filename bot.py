@@ -480,6 +480,20 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _schedule_delete(context, chat_id, update.message.message_id, 60)
         return
 
+    # "Видали" — видаляє повідомлення на яке відповів адмін/superuser
+    if low.strip() in ("видали", "видалити", "удали", "delete this"):
+        reply = update.message.reply_to_message
+        if reply and await _is_admin(context.bot, chat_id, user.id, user.username):
+            try:
+                await reply.delete()
+            except Exception:
+                pass
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            return
+
     # Анонимное сообщение
     if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
         for prefix in ("анонім ", "анон ", "anonym "):
