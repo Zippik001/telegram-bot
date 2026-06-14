@@ -41,6 +41,12 @@ _challenges: dict = {}
 # Бали за квіз: { chat_id: { user_id: {"name": ..., "score": int} } }
 _quiz_scores: dict = defaultdict(dict)
 
+# Трекінг тиші: { chat_id: timestamp останнього повідомлення }
+_last_message_time: dict = {}
+
+# Збережені file_ids
+_media_file_ids: dict = {}
+
 # Язык чата: { chat_id: "ru" }
 _lang: dict = {}
 
@@ -483,7 +489,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # "Видали" — видаляє повідомлення на яке відповів адмін/superuser
-    if low.strip() in ("видали", "видалити", "удали", "delete this"):
+    _del_triggers = ("видали", "видалити", "удали", "delete this")
+    if any(low.strip().rstrip("!?.") == t for t in _del_triggers):
         reply = update.message.reply_to_message
         if reply and await _is_admin(context.bot, chat_id, user.id, user.username):
             try:
@@ -495,6 +502,10 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
             return
+        elif not reply:
+            # Немає reply — нічого не робимо (можливо просто написали слово)
+            pass
+        return
 
     # Анонимное сообщение
     if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
@@ -1822,18 +1833,51 @@ async def sched_weekly_report(context: ContextTypes.DEFAULT_TYPE):
     srt    = sorted(data.items(), key=lambda x: x[1]["count"], reverse=True)
     total  = sum(u["count"] for _, u in srt)
     active = [(uid, u) for uid, u in srt if u["count"] > 0]
-    lines  = [f"📈 Еженедельный отчёт\n(сообщений: {total})\n"]
+
+    lines = [f"📈 Еженедельный отчёт\n(сообщений: {total})\n"]
     for rank, (uid, u) in enumerate(active, 1):
-        bl = min(int(u["count"] / max(active[0][1]["count"],1) * 10), 10) if active else 0
-        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ.\n{'█'*bl+'░'*(10-bl)}")
-    await context.bot.send_message(chat_id, "\n".join(lines))
+        lines.append(f"{medal(rank)} {u['name']} — {u['count']} сообщ.")
+
+    # Мовчуни
     active_ids = {uid for uid, u in active}
     tags = storage.load_tags()
     silent = [u for uid, u in tags.items() if int(uid) not in active_ids]
     if silent:
         mentions = [f"@{u['username']}" if u.get("username") else u["name"] for u in silent]
-        await context.bot.send_message(chat_id,
-            "👻 Молчуны недели:\n\n" + " ".join(mentions) + "\n\nКак дела? 💙")
+        lines.append(f"\n👻 Молчуны: {', '.join(mentions)}")
+
+    # ── Нагороди тижня ──
+    lines.append("\n🏆 Награды недели:")
+
+    # Найбільше повідомлень
+    if active:
+        top_uid, top_u = active[0]
+        lines.append(f"💬 Душа компании: {top_u['name']} — 🎖 «Болтун недели»!")
+
+    # Квіз — найбільше правильних відповідей
+    scores = _quiz_scores.get(chat_id, {})
+    if scores:
+        top_quiz = max(scores.items(), key=lambda x: x[1]["score"])
+        lines.append(f"🧠 Умник: {top_quiz[1]['name']} — {top_quiz[1]['score']} правильных ответов — 🎓 «Мозг на службе у Бендера»!")
+        _quiz_scores[chat_id] = {}  # Скидаємо бали
+
+    # Івенти — хто запропонував найбільше
+    ev_list = _events.get(chat_id, [])
+    ev_authors: dict = {}
+    for ev in ev_list:
+        aid  = ev.get("author_id")
+        aname = ev.get("author", "?")
+        if aid:
+            if aid not in ev_authors:
+                ev_authors[aid] = {"name": aname, "count": 0}
+            ev_authors[aid]["count"] += 1
+    if ev_authors:
+        top_ev = max(ev_authors.items(), key=lambda x: x[1]["count"])
+        lines.append(f"🎉 Организатор: {top_ev[1]['name']} — {top_ev[1]['count']} ивентов — 🏅 «Главный по тусовкам»!")
+
+    await context.bot.send_message(chat_id, "\n".join(lines))
+
+    # Скидаємо activity для нового тижня
     for uid in activity[chat_id]:
         activity[chat_id][uid]["count"] = 0
 
