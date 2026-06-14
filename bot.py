@@ -322,6 +322,12 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     storage.register_user(user)
 
+    # Рахуємо активність одразу — незалежно від типу повідомлення
+    if user.id not in activity[chat_id]:
+        activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
+    activity[chat_id][user.id]["name"]  = user.first_name
+    activity[chat_id][user.id]["count"] += 1
+
     # Оновлюємо час останнього повідомлення
     _last_message_time[chat_id] = datetime.now(KYIV_TZ).timestamp()
 
@@ -452,10 +458,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         thinking = await update.message.reply_text("🤖 Так-так, дай-ка подумаю своими железными мозгами...")
         answer = await ask_ai(ai_question)
         await thinking.edit_text(f"🤖 {answer}")
-        if user.id not in activity[chat_id]:
-            activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
-        activity[chat_id][user.id]["name"] = user.first_name
-        activity[chat_id][user.id]["count"] += 1
         return
 
     # Вызов меню через имя бота
@@ -522,11 +524,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _schedule_delete(context, chat_id, sent.message_id, 60)
         return
 
-    # Активность
-    if user.id not in activity[chat_id]:
-        activity[chat_id][user.id] = {"name": user.first_name, "count": 0}
-    activity[chat_id][user.id]["name"]   = user.first_name
-    activity[chat_id][user.id]["count"] += 1
+    # Кінець track_message
 
 # ── ChatGPT / Groq ──────────────────────────────────────────────────────────
 
