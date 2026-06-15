@@ -1065,9 +1065,9 @@ def all_events_kb(ev_list, chat_id=None):
         no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
         title = ev.get("custom_title") or EVENT_TYPES_RU.get(ev["type"], ev["type"])
         buttons.append([
-            InlineKeyboardButton(f"✅ {title[:18]} ({yes_c})", callback_data=f"ev_yes_{eid}"),
-            InlineKeyboardButton(f"❌ ({no_c})",               callback_data=f"ev_no_{eid}"),
-            InlineKeyboardButton("⚙️",                        callback_data=f"ev_manage_{eid}"),
+            InlineKeyboardButton(f"✅ ({yes_c})", callback_data=f"ev_yes_{eid}"),
+            InlineKeyboardButton(f"❌ ({no_c})", callback_data=f"ev_no_{eid}"),
+            InlineKeyboardButton("⚙️",           callback_data=f"ev_manage_{eid}"),
         ])
     return InlineKeyboardMarkup(buttons)
 
@@ -1132,6 +1132,8 @@ async def cb_eday_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user    = update.effective_user
     chat_id = update.effective_chat.id
+    if not user or not update.message:
+        return
 
     # ── Очікуємо новий опис для редагування існуючого івенту ──
     edit_key = f"edit_ev_{user.id}_{chat_id}"
@@ -1277,6 +1279,8 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def cb_eday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q       = update.callback_query
+    if not q or not q.message:
+        return
     await q.answer()
     parts   = q.data.split("_")
     etype   = parts[1]
@@ -1362,18 +1366,11 @@ async def _refresh_events_message(bot, chat_id):
                                          reply_markup=kb, parse_mode="Markdown")
             return
         except Exception:
-            pass
+            # Повідомлення видалено або недоступне — скидаємо і створюємо нове
+            _events_msg.pop(chat_id, None)
+            storage.save_events_msg(_events_msg)
 
-    # Unpin and DELETE old message if it exists (e.g. couldn't edit — too old, deleted, or bot restarted)
-    if msg_id:
-        try:
-            await bot.unpin_chat_message(chat_id, msg_id)
-        except Exception:
-            pass
-        try:
-            await bot.delete_message(chat_id, msg_id)
-        except Exception:
-            pass
+    # Створюємо нове повідомлення
     sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
     _events_msg[chat_id] = sent.message_id
     storage.save_events_msg(_events_msg)
