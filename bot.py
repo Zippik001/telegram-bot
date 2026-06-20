@@ -1452,14 +1452,9 @@ async def cb_ev_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("Ивент не найден 😔", show_alert=True)
         return
 
-    # Перевірка прав — автор або адмін
+    # Перевірка прав — автор або адмін/superuser
     is_author = ev.get("author_id") == user.id
-    is_admin  = False
-    try:
-        m = await context.bot.get_chat_member(chat_id, user.id)
-        is_admin = m.status in ("administrator", "creator")
-    except Exception:
-        pass
+    is_admin  = await _is_admin(context.bot, chat_id, user.id, user.username)
 
     if not (is_author or is_admin):
         await q.answer("⛔ Только автор ивента или администратор может управлять им.", show_alert=True)
@@ -1493,12 +1488,7 @@ async def cb_ev_editdesc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     is_author = ev.get("author_id") == user.id
-    is_admin  = False
-    try:
-        m = await context.bot.get_chat_member(chat_id, user.id)
-        is_admin = m.status in ("administrator", "creator")
-    except Exception:
-        pass
+    is_admin  = await _is_admin(context.bot, chat_id, user.id, user.username)
     if not (is_author or is_admin):
         await q.answer("⛔ Только автор или администратор.", show_alert=True)
         return
@@ -1553,12 +1543,7 @@ async def cb_ev_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     is_author = ev.get("author_id") == user.id
-    is_admin  = False
-    try:
-        m = await context.bot.get_chat_member(chat_id, user.id)
-        is_admin = m.status in ("administrator", "creator")
-    except Exception:
-        pass
+    is_admin  = await _is_admin(context.bot, chat_id, user.id, user.username)
     if not (is_author or is_admin):
         await q.answer("⛔ Только автор или администратор.", show_alert=True)
         return
