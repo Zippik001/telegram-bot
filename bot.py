@@ -1363,15 +1363,15 @@ async def _refresh_events_message(bot, chat_id):
     if msg_id:
         try:
             await bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id,
-                                         reply_markup=kb, parse_mode="Markdown")
+                                         reply_markup=kb)
             return
-        except Exception:
-            # Повідомлення видалено або недоступне — скидаємо і створюємо нове
+        except Exception as _e:
+            logger.warning(f"edit_message_text failed: {_e}")
             _events_msg.pop(chat_id, None)
             storage.save_events_msg(_events_msg)
 
     # Створюємо нове повідомлення
-    sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
+    sent = await bot.send_message(chat_id, text, reply_markup=kb)
     _events_msg[chat_id] = sent.message_id
     storage.save_events_msg(_events_msg)
     try:
