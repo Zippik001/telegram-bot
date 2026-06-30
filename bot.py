@@ -376,7 +376,7 @@ async def cmd_weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("📅 Сегодня", callback_data="w_today"),
         InlineKeyboardButton("🔜 Завтра",  callback_data="w_tomorrow"),
-        InlineKeyboardButton("📆 Неделя",  callback_data="w_week"),
+        InlineKeyboardButton("📆 3 дня",  callback_data="w_week"),
     ]])
     await update.message.reply_text("🌍 На когда нужна погода?", reply_markup=kb)
 
@@ -584,17 +584,22 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if _addressed_to_bender:
-        # Витягуємо текст після звертання (прибираємо ім'я і кому/пробіл)
-        _after_name = text
-        for p in _bender_call_prefixes:
-            for sep in (", ", ",", " "):
-                prefix = p + sep
-                if low.startswith(prefix):
-                    _after_name = text[len(prefix):].strip()
-                    break
-            else:
-                continue
-            break
+        # Якщо це точно саме лише ім'я (можливо з ! ? .) — одразу порожній текст після імені
+        _stripped = low.strip().rstrip("!?.,")
+        if _stripped in _bender_call_prefixes:
+            _after_name = ""
+        else:
+            # Витягуємо текст після звертання (прибираємо ім'я і кому/пробіл)
+            _after_name = text
+            for p in _bender_call_prefixes:
+                for sep in (", ", ",", " "):
+                    prefix = p + sep
+                    if low.startswith(prefix):
+                        _after_name = text[len(prefix):].strip()
+                        break
+                else:
+                    continue
+                break
         _after_name_low = _after_name.lower()
 
         # 1. Погода — перевіряємо першою
@@ -2335,7 +2340,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb_w = InlineKeyboardMarkup([[
             InlineKeyboardButton("📅 Сегодня", callback_data="w_today"),
             InlineKeyboardButton("🔜 Завтра",  callback_data="w_tomorrow"),
-            InlineKeyboardButton("📆 Неделя",  callback_data="w_week"),
+            InlineKeyboardButton("📆 3 дня",  callback_data="w_week"),
         ]])
         await q.message.reply_text("🌍 На когда нужна погода?", reply_markup=kb_w)
 
