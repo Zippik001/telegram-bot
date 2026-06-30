@@ -659,7 +659,72 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _schedule_delete(context, chat_id, update.message.message_id, 60)
             return
 
-        # 4. Всё остальное — обычный вопрос к ИИ
+        # 4. Розпізнавання наміру через ШІ — якщо людина просить функцію іншими словами
+        intent_result = await detect_intent(_after_name)
+        if intent_result and intent_result.get("intent") != "none":
+            intent = intent_result["intent"]
+
+            if intent == "weather":
+                msg = await update.message.reply_text("⏳ Получаю погоду...")
+                data = await fetch_weather_full()
+                if not data:
+                    await msg.edit_text("😔 Не удалось получить погоду.")
+                    return
+                period = intent_result.get("period")
+                if period == "tomorrow":
+                    text_w = build_weather_tomorrow(data)
+                elif period == "week":
+                    text_w = build_weather_week(data)
+                else:
+                    text_w = build_weather_full(data)
+                await msg.edit_text(text_w, parse_mode="Markdown")
+                return
+
+            elif intent == "event":
+                rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
+                        for key, label in EVENT_TYPES_RU.items()]
+                rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
+                await update.message.reply_text(
+                    "🎉 Создать ивент\n\nВыбери тип события:",
+                    reply_markup=InlineKeyboardMarkup(rows)
+                )
+                return
+
+            elif intent == "quiz":
+                tmp = await update.message.reply_text("🧠 Генерирую вопрос...")
+                quiz = await ask_ai_quiz()
+                if not quiz:
+                    await tmp.edit_text("😔 Не удалось сгенерировать вопрос. Попробуй позже.")
+                    return
+                try:
+                    await tmp.delete()
+                except Exception:
+                    pass
+                sent_q = await context.bot.send_poll(
+                    chat_id, f"🧠 {quiz['question']}", quiz["options"],
+                    type="quiz", correct_option_id=quiz["correct_index"], is_anonymous=False,
+                )
+                context.bot_data[f"quiz_{sent_q.poll.id}"] = {
+                    "chat_id": chat_id, "correct_option_id": quiz["correct_index"],
+                }
+                _schedule_delete(context, chat_id, sent_q.message_id, 7200)
+                return
+
+            elif intent == "topic":
+                item = random.choice(all_qt_items())
+                await update.message.reply_text(item, parse_mode="Markdown")
+                return
+
+            elif intent == "profile":
+                sent = await update.message.reply_text(
+                    "📋 Чтобы сохранить анкету, напиши:\n*о себе* и дальше расскажи о себе.\n\n"
+                    "Например: о себе Привет! Я Иван, 28 лет, люблю настолки",
+                    parse_mode="Markdown"
+                )
+                _schedule_delete(context, chat_id, sent.message_id, 60)
+                return
+
+        # 5. Всё остальное — обычный вопрос к ИИ
         thinking = await update.message.reply_text("🤖 Так-так, дай-ка подумаю своими железными мозгами...")
         answer = await ask_ai(_after_name)
         sent_msg = await thinking.edit_text(f"🤖 {answer}")
@@ -839,6 +904,54 @@ QUIZ_TOPICS = [
     "изобретения и открытия",
     "космос и астрономия",
 ]
+
+async def detect_intent(question: str) -> dict | None:
+    """Распознаёт через ИИ, хочет ли пользователь конкретную функцию бота.
+    Возвращает {"intent": "weather|event|quiz|profile|topic|none", "period": "today|tomorrow|week"} или None."""
+    import os, json as _json
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        return None
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": (
+                "Ты определяешь намерение пользователя в чате Telegram-бота Бендера. "
+                "Бот умеет: показывать погоду (weather), создавать ивент/событие (event), "
+                "запускать викторину/квиз (quiz), сохранять анкету пользователя (profile), "
+                "давать тему для разговора или вопрос (topic). "
+                "Если сообщение явно просит одну из этих функций — но НЕ через стандартную команду или фразу — "
+                "верни JSON. Если сообщение это обычный вопрос, просьба пошутить, поболтать, дать совет, "
+                "рассказать факт — то intent должен быть 'none'.\n\n"
+                "Отвечай СТРОГО в JSON формате без пояснений:\n"
+                '{"intent": "weather|event|quiz|profile|topic|none", "period": "today|tomorrow|week|null"}\n\n'
+                "period заполняй только для weather (когда из текста понятно про какой день речь), иначе null."
+            )},
+            {"role": "user", "content": question}
+        ],
+        "max_tokens": 100,
+        "temperature": 0.1,
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, json=payload, headers=headers,
+                              timeout=aiohttp.ClientTimeout(total=15)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    raw = data["choices"][0]["message"]["content"].strip()
+                    if raw.startswith("```"):
+                        raw = raw.split("```")[1]
+                        if raw.startswith("json"):
+                            raw = raw[4:]
+                    result = _json.loads(raw.strip())
+                    if "intent" in result:
+                        return result
+    except Exception as e:
+        logger.error(f"detect_intent: {e}")
+    return None
+
 
 async def ask_ai_quiz() -> dict | None:
     """Генерирует квиз-вопрос с 4 вариантами через ИИ. Возвращает dict с question, options, correct_index."""
