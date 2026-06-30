@@ -145,9 +145,6 @@ EVENT_TYPES_RU = {
     "custom":     "✏️ Своя идея",
 }
 
-def EVENT_TYPES(chat_id=None):
-    return EVENT_TYPES_RU
-
 DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 DAY_EMOJI = ["📅","📅","📅","📅","🎉","🎉","😴"]
 MONTHS_RU = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"]
@@ -177,9 +174,6 @@ def custom_date_weekday_name(date_str: str) -> str:
     except Exception:
         return ""
 
-def DAYS(chat_id=None):
-    return DAYS_RU
-
 # ── Погода ────────────────────────────────────
 
 async def fetch_weather_full():
@@ -194,9 +188,6 @@ async def fetch_weather_full():
     except Exception as e:
         logger.error(f"Weather: {e}")
     return None
-
-async def fetch_weather():
-    return await fetch_weather_full()
 
 def wttr_emoji(code: int) -> str:
     if code in (113,): return "☀️"
@@ -368,9 +359,6 @@ def build_weather_week(data):
     except Exception as e:
         logger.error(f"build_weather_week: {e}")
         return "😔 Не удалось обработать данные на неделю."
-
-def build_weather_text(data):
-    return build_weather_full(data)
 
 async def cmd_weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([[
@@ -617,6 +605,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     text_w = build_weather_full(data)
                 await msg.edit_text(text_w, parse_mode="Markdown")
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
         # 2. Створення івенту
@@ -629,10 +618,11 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
                     for key, label in EVENT_TYPES_RU.items()]
             rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
-            await update.message.reply_text(
+            sent_ev = await update.message.reply_text(
                 "🎉 Создать ивент\n\nВыбери тип события:",
                 reply_markup=InlineKeyboardMarkup(rows)
             )
+            _schedule_delete(context, chat_id, update.message.message_id, 120)
             return
 
         # 3. Просто звернення без питання (тільки ім'я) — відкрити меню
@@ -678,6 +668,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     text_w = build_weather_full(data)
                 await msg.edit_text(text_w, parse_mode="Markdown")
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
             elif intent == "event":
@@ -688,6 +679,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "🎉 Создать ивент\n\nВыбери тип события:",
                     reply_markup=InlineKeyboardMarkup(rows)
                 )
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
             elif intent == "quiz":
@@ -708,20 +700,48 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "chat_id": chat_id, "correct_option_id": quiz["correct_index"],
                 }
                 _schedule_delete(context, chat_id, sent_q.message_id, 7200)
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
             elif intent == "topic":
                 item = random.choice(all_qt_items())
                 await update.message.reply_text(item, parse_mode="Markdown")
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
             elif intent == "profile":
-                sent = await update.message.reply_text(
-                    "📋 Чтобы сохранить анкету, напиши:\n*о себе* и дальше расскажи о себе.\n\n"
-                    "Например: о себе Привет! Я Иван, 28 лет, люблю настолки",
-                    parse_mode="Markdown"
+                # Просимо ШІ витягти чистий текст анкети з повідомлення користувача
+                extract_prompt = (
+                    "Пользователь хочет сохранить информацию о себе в анкету бота. "
+                    "Вот его сообщение: \"" + _after_name + "\"\n\n"
+                    "Извлеки только содержательную часть для анкеты (без обращения к боту, "
+                    "без слов типа 'добавь в анкету', 'сохрани' и т.п.) — просто текст о человеке. "
+                    "Ответь ТОЛЬКО этим текстом, без кавычек и пояснений."
                 )
-                _schedule_delete(context, chat_id, sent.message_id, 60)
+                extracted = await ask_ai(extract_prompt)
+                if extracted and len(extracted) > 3:
+                    profiles = storage.load_profiles()
+                    existing = profiles.get(user.id) or profiles.get(str(user.id)) or {}
+                    profiles.pop(str(user.id), None)
+                    old_text = existing.get("text", "")
+                    new_text = (old_text + "\n" + extracted).strip() if old_text else extracted
+                    profiles[user.id] = {
+                        "text":      new_text,
+                        "username":  user.username or "",
+                        "tg_name":   user.first_name,
+                        "instagram": existing.get("instagram", ""),
+                        "work":      existing.get("work", ""),
+                    }
+                    storage.save_profiles(profiles)
+                    sent = await update.message.reply_text(f"✅ Добавлено в анкету, {user.first_name}!")
+                    _schedule_delete(context, chat_id, sent.message_id, 60)
+                else:
+                    sent = await update.message.reply_text(
+                        "📋 Не понял что добавить. Напиши проще:\n*о себе* и дальше расскажи о себе.",
+                        parse_mode="Markdown"
+                    )
+                    _schedule_delete(context, chat_id, sent.message_id, 60)
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
         # 5. Всё остальное — обычный вопрос к ИИ
@@ -732,6 +752,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": _after_name},
             {"role": "assistant", "content": answer},
         ]
+        _schedule_delete(context, chat_id, update.message.message_id, 120)
         return
 
     # AI: ответ (reply) на сообщение Бендера — продолжение разговора с памятью
@@ -874,12 +895,6 @@ PHOTO_DAY_PROMPTS = [
     "📸 Что вы сейчас смотрите или читаете? Покажите — хочу знать чем вы там забиваете свои органические мозги",
     "📸 Фото дня: покажите во что вы сегодня одеты. Органическая мода меня всегда забавляет",
 ]
-
-async def sched_photo_day(context: ContextTypes.DEFAULT_TYPE):
-    """Раз в день — предложение поделиться фото в стиле Бендера."""
-    chat_id = context.job.data["chat_id"]
-    prompt = random.choice(PHOTO_DAY_PROMPTS)
-    await context.bot.send_message(chat_id, prompt)
 
 async def cmd_photoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ручной запуск фото дня."""
@@ -1068,13 +1083,6 @@ def _schedule_delete(context, chat_id: int, message_id: int, delay: int = 120):
         except Exception:
             pass
     context.job_queue.run_once(_do_delete, when=delay)
-
-def _schedule_cmd_delete(update, context, delay: int = 10):
-    """Заплановує видалення команди /xxx через delay секунд."""
-    try:
-        _schedule_delete(context, update.effective_chat.id, update.message.message_id, delay)
-    except Exception:
-        pass
 
 # ── Приветствие новых участников ──────────────────────────────────────────────────
 
@@ -1335,8 +1343,9 @@ def event_text(ev, chat_id=None):
         day_str = f"📅 {wd_name} {cd}" if wd_name else f"📅 {cd}"
     else:
         day_str = day_label(ev["day"])
-    yes_names = [n for n, v in ev["votes_named"].values() if v]
-    no_names  = [n for n, v in ev["votes_named"].values() if not v]
+    yes_names   = [n for n, v in ev["votes_named"].values() if v == True]
+    no_names    = [n for n, v in ev["votes_named"].values() if v == False]
+    maybe_names = [n for n, v in ev["votes_named"].values() if v == "maybe"]
     lines = [f"🎉 *Ивент от {ev['author']}*\n"]
     if ev.get("custom_title"):
         lines.append(f"📝 *{ev['custom_title']}*\n_{etype}_")
@@ -1346,18 +1355,11 @@ def event_text(ev, chat_id=None):
     if ev.get("description"):
         lines.append(f"\n💬 {ev['description']}")
     lines.append(f"\n✅ Идут ({len(yes_names)}): {', '.join(yes_names) if yes_names else 'пока никто'}")
+    if maybe_names:
+        lines.append(f"🤔 50/50 ({len(maybe_names)}): {', '.join(maybe_names)}")
     if no_names:
         lines.append(f"❌ Не идут: {', '.join(no_names)}")
     return "\n".join(lines)
-
-def event_kb(ev):
-    eid   = ev["id"]
-    yes_c = sum(1 for n, v in ev["votes_named"].values() if v)
-    no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"✅ Иду ({yes_c})",    callback_data=f"ev_yes_{eid}"),
-        InlineKeyboardButton(f"❌ Не иду ({no_c})", callback_data=f"ev_no_{eid}"),
-    ]])
 
 def all_events_text(ev_list, chat_id=None):
     if not ev_list:
@@ -1375,14 +1377,16 @@ def all_events_kb(ev_list, chat_id=None):
         return None
     buttons = []
     for ev in ev_list:
-        eid   = ev["id"]
-        yes_c = sum(1 for n, v in ev["votes_named"].values() if v)
-        no_c  = sum(1 for n, v in ev["votes_named"].values() if not v)
+        eid     = ev["id"]
+        yes_c   = sum(1 for n, v in ev["votes_named"].values() if v == True)
+        no_c    = sum(1 for n, v in ev["votes_named"].values() if v == False)
+        maybe_c = sum(1 for n, v in ev["votes_named"].values() if v == "maybe")
         title = ev.get("custom_title") or EVENT_TYPES_RU.get(ev["type"], ev["type"])
         buttons.append([
-            InlineKeyboardButton(f"✅ ({yes_c})", callback_data=f"ev_yes_{eid}"),
-            InlineKeyboardButton(f"❌ ({no_c})", callback_data=f"ev_no_{eid}"),
-            InlineKeyboardButton("⚙️",           callback_data=f"ev_manage_{eid}"),
+            InlineKeyboardButton(f"✅ ({yes_c})",   callback_data=f"ev_yes_{eid}"),
+            InlineKeyboardButton(f"🤔 ({maybe_c})", callback_data=f"ev_maybe_{eid}"),
+            InlineKeyboardButton(f"❌ ({no_c})",    callback_data=f"ev_no_{eid}"),
+            InlineKeyboardButton("⚙️",              callback_data=f"ev_manage_{eid}"),
         ])
     return InlineKeyboardMarkup(buttons)
 
@@ -1920,14 +1924,21 @@ async def cb_ev_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         storage.save_events(_events)
         await q.answer("Голос убран, можешь проголосовать снова")
     elif action == "yes":
-        if existing and existing[1] is True:
+        if existing and existing[1] == True:
             await q.answer("✅ Ты уже отметился как «Иду»!", show_alert=True)
             return
         ev["votes_named"][uid_str] = [user.first_name, True]
         storage.save_events(_events)
         await q.answer("✅ Отметился как «Иду»!")
+    elif action == "maybe":
+        if existing and existing[1] == "maybe":
+            await q.answer("🤔 Ты уже отметился как «50/50»!", show_alert=True)
+            return
+        ev["votes_named"][uid_str] = [user.first_name, "maybe"]
+        storage.save_events(_events)
+        await q.answer("🤔 Отметился как «50/50».")
     elif action == "no":
-        if existing and existing[1] is False:
+        if existing and existing[1] == False:
             await q.answer("❌ Ты уже отметился как «Не иду»!", show_alert=True)
             return
         ev["votes_named"][uid_str] = [user.first_name, False]
@@ -2280,12 +2291,6 @@ def schedule_auto_jobs(jq, chat_id):
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
     jq.run_daily(sched_anketa_reminder,       time=time(17,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_anketa")
     jq.run_repeating(sched_check_silence,     interval=1800, first=300,          data={"chat_id":chat_id}, name=f"{chat_id}_silence")
-
-def ensure_auto_jobs(jq, chat_id):
-    """Якщо для чату ще немає запланованих jobs — запускає їх (авто-увімкнення за замовчуванням)."""
-    if not jq.get_jobs_by_name(f"{chat_id}_weather"):
-        schedule_auto_jobs(jq, chat_id)
-        storage.set_autorun(chat_id, True)
 
 async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -3004,7 +3009,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_ev_delete,     pattern=r"^ev_delete_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_ev_delyes,     pattern=r"^ev_delyes_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_ev_back,       pattern=r"^ev_back_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_ev_vote,     pattern=r"^ev_(yes|no|change)_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_ev_vote,     pattern=r"^ev_(yes|no|maybe|change)_\d+$"))
 
     app.add_handler(CommandHandler("start",         cmd_start))
     app.add_handler(CommandHandler("help",          cmd_help))
