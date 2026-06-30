@@ -652,6 +652,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
                 [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt"),
                  InlineKeyboardButton("🧠 Квиз",                 callback_data="menu_quiz")],
+                [InlineKeyboardButton("ℹ️ Как мной пользоваться", callback_data="menu_howto")],
             ])
             sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
             _schedule_delete(context, chat_id, sent.message_id, 60)
@@ -2262,6 +2263,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
         [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt"),
          InlineKeyboardButton("🧠 Квиз",                 callback_data="menu_quiz")],
+        [InlineKeyboardButton("ℹ️ Как мной пользоваться", callback_data="menu_howto")],
     ])
     sent = await update.message.reply_text(text, reply_markup=keyboard)
     _schedule_delete(context, update.effective_chat.id, sent.message_id, 60)
@@ -2371,6 +2373,23 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "correct_option_id": quiz["correct_index"],
         }
         _schedule_delete(context, chat_id_q, sent_q.message_id, 7200)
+
+    elif action == "howto":
+        howto_text = (
+            "ℹ️ *Как мной пользоваться*\n\n"
+            "🤖 Зови меня в чате: напиши *Бендер*, *Бенди* или *Бляшанка* — открою меню.\n\n"
+            "💬 Спроси что-нибудь: *Бендер, [вопрос]* — отвечу как умею.\n"
+            "Можешь продолжать разговор — ответь (reply) на мой ответ, я запомню контекст.\n\n"
+            "🌤 Погода: жми кнопку *Погода* или пиши *Бендер, погода* / *погода на завтра*.\n\n"
+            "🎉 Ивенты: кнопка *Предложить ивент* создаёт событие с голосованием. Можно сказать *Бендер, создай ивент*.\n\n"
+            "📋 Анкета: напиши *о себе [расскажи о себе]* — сохраню. "
+            "Можно добавить *мой инстаграм @ник* и *моя работа [текст]*.\n\n"
+            "🧠 Квиз и ❓ Вопрос/Тема — кнопки в меню для развлечения в чате.\n\n"
+            "🎭 Анонимное сообщение: напиши *Анонім [текст]* — опубликую без указания автора.\n\n"
+            "Полный список команд: /help"
+        )
+        sent = await q.message.reply_text(howto_text, parse_mode="Markdown")
+        _schedule_delete(context, q.message.chat_id, sent.message_id, 120)
 
     elif action == "report":
         await _menu_report(q, context)
