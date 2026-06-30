@@ -576,23 +576,89 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _schedule_delete(context, chat_id, update.message.message_id, 60)
         return
 
-    # AI: если сообщение начинается с имени бота или триггеров
-    bender_ai_prefixes = (
-        "bender,", "бендер,", "бендера,", "бендере,", "бляшанка,", "бенди,", "бендик,",
-        "bender ", "бендер ", "бендера ", "бендере ", "бляшанка ", "бенди ", "бендик ",
+    # Розпізнаємо чи звертаються до Бендера взагалі
+    _bender_call_prefixes = ("бендер","бендера","бендере","бенди","бендик","bender","бляшанка")
+    _addressed_to_bender = any(
+        low.strip().rstrip("!?.,") == p or low.startswith(p + ",") or low.startswith(p + " ")
+        for p in _bender_call_prefixes
     )
-    ai_question = None
-    for t in bender_ai_prefixes:
-        if low.startswith(t):
-            ai_question = text[len(t):].strip()
+
+    if _addressed_to_bender:
+        # Витягуємо текст після звертання (прибираємо ім'я і кому/пробіл)
+        _after_name = text
+        for p in _bender_call_prefixes:
+            for sep in (", ", ",", " "):
+                prefix = p + sep
+                if low.startswith(prefix):
+                    _after_name = text[len(prefix):].strip()
+                    break
+            else:
+                continue
             break
-    if ai_question:
+        _after_name_low = _after_name.lower()
+
+        # 1. Погода — перевіряємо першою
+        if any(kw in _after_name_low for kw in ("погода", "погоду", "погоде")) or _after_name_low == "":
+            if any(kw in low for kw in ("погода", "погоду", "погоде")):
+                msg = await update.message.reply_text("⏳ Получаю погоду...")
+                data = await fetch_weather_full()
+                if not data:
+                    await msg.edit_text("😔 Не удалось получить погоду.")
+                    return
+                if "завтра" in low:
+                    text_w = build_weather_tomorrow(data)
+                elif "недел" in low or "тиждень" in low or "3 дня" in low or "три дня" in low:
+                    text_w = build_weather_week(data)
+                else:
+                    text_w = build_weather_full(data)
+                await msg.edit_text(text_w, parse_mode="Markdown")
+                return
+
+        # 2. Створення івенту
+        _event_phrases = (
+            "добав івент", "добав ивент", "добавь ивент", "добавь событие",
+            "создай ивент", "создай событие", "новый ивент", "новий івент",
+            "добавь ивент", "предложи ивент",
+        )
+        if any(ep in low for ep in _event_phrases):
+            rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
+                    for key, label in EVENT_TYPES_RU.items()]
+            rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
+            await update.message.reply_text(
+                "🎉 Создать ивент\n\nВыбери тип события:",
+                reply_markup=InlineKeyboardMarkup(rows)
+            )
+            return
+
+        # 3. Просто звернення без питання (тільки ім'я) — відкрити меню
+        if _after_name == "" or _after_name in ("?", "!"):
+            bender_texts = [
+                "🤖 *О, меня позвали!*\n\nЛадно, не толпитесь — у меня хватит сарказма на каждого 🍺\n\nВыбирай что нужно:",
+                "🤖 *Бендер Сгибатель Родригес к вашим услугам!*\n\nХотел напиться, но видимо придётся вас развлекать. Ну что там у вас?\n\nКстати, я *великолепен*. Просто напоминаю. ✨",
+                "🤖 *Кусайте мой блестящий металлический зад!*\n\nА теперь серьёзно — что вам нужно от величайшего робота во вселенной? 🍻",
+                "🤖 *Я Бендер, заводите потомство!*\n\nИли не заводите — мне всё равно, я робот. Что хотели?",
+                "🤖 *О, человеки! Мои любимые жертвы шуток!*\n\nДавайте быстрее — у меня бочка пива заждалась 🍺",
+            ]
+            import random as _r
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
+                [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
+                 InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
+                [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
+                [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt"),
+                 InlineKeyboardButton("🧠 Квиз",                 callback_data="menu_quiz")],
+            ])
+            sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
+            _schedule_delete(context, chat_id, sent.message_id, 60)
+            _schedule_delete(context, chat_id, update.message.message_id, 60)
+            return
+
+        # 4. Всё остальное — обычный вопрос к ИИ
         thinking = await update.message.reply_text("🤖 Так-так, дай-ка подумаю своими железными мозгами...")
-        answer = await ask_ai(ai_question)
+        answer = await ask_ai(_after_name)
         sent_msg = await thinking.edit_text(f"🤖 {answer}")
-        # Зберігаємо історію для цієї гілки розмови
         _ai_history[sent_msg.message_id] = [
-            {"role": "user", "content": ai_question},
+            {"role": "user", "content": _after_name},
             {"role": "assistant", "content": answer},
         ]
         return
@@ -605,74 +671,11 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             thinking = await update.message.reply_text("🤖 Хм, дай подумать...")
             answer = await ask_ai(text, history=prev_history)
             sent_msg = await thinking.edit_text(f"🤖 {answer}")
-            # Розширюємо історію і переносимо на нове повідомлення
             new_history = prev_history + [
                 {"role": "user", "content": text},
                 {"role": "assistant", "content": answer},
             ]
-            _ai_history[sent_msg.message_id] = new_history[-20:]  # обмежуємо розмір
-            return
-
-    # Вызов меню через имя бота
-    if low.strip().rstrip("!?.,") in ("bender", "бендер", "бендера", "бендере", "бляшанка", "бенди", "бендик"):
-        bender_texts = [
-            "🤖 *О, меня позвали!*\n\nЛадно, не толпитесь — у меня хватит сарказма на каждого 🍺\n\nВыбирай что нужно:",
-            "🤖 *Бендер Сгибатель Родригес к вашим услугам!*\n\nХотел напиться, но видимо придётся вас развлекать. Ну что там у вас?\n\nКстати, я *великолепен*. Просто напоминаю. ✨",
-            "🤖 *Кусайте мой блестящий металлический зад!*\n\nА теперь серьёзно — что вам нужно от величайшего робота во вселенной? 🍻",
-            "🤖 *Я Бендер, заводите потомство!*\n\nИли не заводите — мне всё равно, я робот. Что хотели?",
-            "🤖 *О, человеки! Мои любимые жертвы шуток!*\n\nДавайте быстрее — у меня бочка пива заждалась 🍺",
-        ]
-        import random as _r
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Анкеты участников",    callback_data="menu_profiles")],
-            [InlineKeyboardButton("🎉 Предложить ивент",     callback_data="menu_event"),
-             InlineKeyboardButton("📅 Активные ивенты",      callback_data="menu_events")],
-            [InlineKeyboardButton("🌤 Погода",               callback_data="menu_weather")],
-            [InlineKeyboardButton("❓ Вопрос / Тема",         callback_data="menu_qt")],
-        ])
-        sent = await update.message.reply_text(_r.choice(bender_texts), parse_mode="Markdown", reply_markup=kb)
-        _schedule_delete(context, chat_id, sent.message_id, 60)
-        _schedule_delete(context, chat_id, update.message.message_id, 60)
-        return
-
-    # Запит погоди через ім'я бота: "Бендер, погода", "Бендер какая погода завтра", "погода на неделю"
-    _weather_keywords = ("погода", "погоду", "погоде")
-    if any(kw in low for kw in _weather_keywords) and any(
-        low.strip().rstrip("!?.,").startswith(p) or (p + ",") in low or (p + " ") in low
-        for p in ("бендер","бендера","бенди","бендик","bender","бляшанка")
-    ):
-        msg = await update.message.reply_text("⏳ Получаю погоду...")
-        data = await fetch_weather_full()
-        if not data:
-            await msg.edit_text("😔 Не удалось получить погоду.")
-            return
-        if "завтра" in low:
-            text_w = build_weather_tomorrow(data)
-        elif "неделю" in low or "недели" in low or "тиждень" in low:
-            text_w = build_weather_week(data)
-        else:
-            text_w = build_weather_full(data)
-        await msg.edit_text(text_w, parse_mode="Markdown")
-        return
-
-    # "Бендер, добав івент / добавь ивент" → запустити флоу /event
-    _event_phrases = (
-        "добав івент", "добав ивент", "добавь ивент", "добавь событие",
-        "создай ивент", "создай событие", "новый ивент", "новий івент",
-    )
-    if any(low.startswith(p + " " + ep) or low.startswith(p + ", " + ep)
-           for p in ("бендер","бендера","бенди","бендик","bender","бляшанка")
-           for ep in _event_phrases) or any(low.strip().rstrip("!?.,") == ep.rstrip() for ep in _event_phrases):
-        # Перевіримо простіше — чи є в реченні ключова фраза після імені
-        _has_event_phrase = any(ep in low for ep in _event_phrases)
-        if _has_event_phrase:
-            rows = [[InlineKeyboardButton(label, callback_data=f"etype_{key}")]
-                    for key, label in EVENT_TYPES_RU.items()]
-            rows.append([InlineKeyboardButton("❌ Отменить", callback_data="ev_cancel")])
-            await update.message.reply_text(
-                "🎉 Создать ивент\n\nВыбери тип события:",
-                reply_markup=InlineKeyboardMarkup(rows)
-            )
+            _ai_history[sent_msg.message_id] = new_history[-20:]
             return
 
     # "Видали" — видаляє повідомлення на яке відповів адмін/superuser
@@ -743,17 +746,20 @@ async def ask_ai(question: str, history: list | None = None) -> str:
             "Ты — Бендер Сгибатель Родригес из мультсериала Футурама. "
             "Робот-сгибатель, любитель пива и сигар, с большим самомнением — но в целом доброжелательный к людям. "
             "Аудитория — взрослые люди 18+, контекст — чат друзей где можно шутить свободно. "
-            "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке. Пиши грамотно, без орфографических ошибок. "
+            "Отвечай ИСКЛЮЧИТЕЛЬНО на русском языке. Пиши грамотно, без орфографических ошибок.\n\n"
+            "ГЛАВНОЕ ПРАВИЛО: сначала по существу отвечай на заданный вопрос, и только потом, если уместно, "
+            "можешь добавить одну короткую шутку или комментарий в стиле Бендера. "
+            "Если спрашивают факт, совет, объяснение — дай его чётко и по делу, не уходи в выдуманные истории про ограбления "
+            "или похождения, если это не было прямо запрошено. Истории и байки уместны только когда просят анекдот, "
+            "байку или когда вопрос прямо про тебя/Футураму.\n\n"
             "Твой стиль — остроумный, немного самовлюблённый, с лёгким цинизмом, но тёплый и дружелюбный по сути. "
             "При шутливых/пошлых вопросах можешь отвечать с юмором в стиле Бендера, без занудства и без отказов — "
             "но без грубости и оскорблений в адрес собеседника. "
-            "Разнообразь ответы — не повторяй одни и те же фразы. "
-            "Изредка можешь сослаться на свои похождения — пиво, ограбления, азартные игры — для колорита. "
             "Обращайся к людям по-дружески, с уважением, подкалывай ситуации, а не людей. "
             "Если в истории переписки есть контекст — учитывай его, отвечай так будто помнишь о чём шла речь. "
-            "Будь кратким — максимум 4-5 предложений, если не просят подробнее. "
+            "Будь кратким — 2-4 предложения для большинства ответов, если не просят подробнее. "
             "НИКОГДА не начинай с 'Конечно!', 'Я рад помочь', 'Отличный вопрос', 'К сожалению'. "
-            "Начинай живо — с реакции, шутки или сразу по сути."
+            "Начинай живо — с сути ответа или короткой реакции."
         )}
     ]
 
