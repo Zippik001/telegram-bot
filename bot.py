@@ -452,7 +452,8 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.delete()
             except Exception as e:
                 logger.error(f"DELETE cmd failed: {e}")
-        return
+            return
+        # Якщо немає reply або не адмін — не перехоплюємо, даємо продовжити
 
     # ── Reply "Анкета" на чиєсь повідомлення — записати той текст як анкету автора оригіналу ──
     if low.strip() in ("анкета", "анкету", "анкеta", "anketa"):
@@ -722,7 +723,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif intent == "topic":
                 item = random.choice(all_qt_items())
                 await update.message.reply_text(item, parse_mode="Markdown")
-                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
             elif intent == "profile":
@@ -757,7 +757,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
                     _schedule_delete(context, chat_id, sent.message_id, 60)
-                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
         # 5. Всё остальное — обычный вопрос к ИИ
@@ -768,7 +767,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": _after_name},
             {"role": "assistant", "content": answer},
         ]
-        _schedule_delete(context, chat_id, update.message.message_id, 120)
         return
 
     # AI: ответ (reply) на сообщение Бендера — продолжение разговора с памятью
