@@ -438,6 +438,22 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     low  = text.lower()
 
+    # "Видали" — найвища пріоритетність, перевіряємо першими
+    _del_triggers = ("видали", "видалити", "удали", "delete this")
+    if any(low.strip().rstrip("!?.") == t for t in _del_triggers):
+        reply = update.message.reply_to_message
+        is_adm = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if reply and is_adm:
+            try:
+                await reply.delete()
+            except Exception as e:
+                logger.error(f"DELETE reply failed: {e}")
+            try:
+                await update.message.delete()
+            except Exception as e:
+                logger.error(f"DELETE cmd failed: {e}")
+        return
+
     # ── Reply "Анкета" на чиєсь повідомлення — записати той текст як анкету автора оригіналу ──
     if low.strip() in ("анкета", "анкету", "анкеta", "anketa"):
         reply = update.message.reply_to_message
@@ -770,25 +786,6 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _ai_history[sent_msg.message_id] = new_history[-20:]
             return
 
-    # "Видали" — видаляє повідомлення на яке відповів адмін/superuser
-    _del_triggers = ("видали", "видалити", "удали", "delete this")
-    if any(low.strip().rstrip("!?.") == t for t in _del_triggers):
-        reply = update.message.reply_to_message
-        if reply and await _is_admin(context.bot, chat_id, user.id, user.username):
-            try:
-                await reply.delete()
-            except Exception:
-                pass
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
-            return
-        elif not reply:
-            # Немає reply — нічого не робимо (можливо просто написали слово)
-            pass
-        return
-
     # Анонимное сообщение
     if low.startswith("анонім ") or low.startswith("анон ") or low.startswith("anonym "):
         for prefix in ("анонім ", "анон ", "anonym "):
@@ -937,17 +934,23 @@ async def detect_intent(question: str) -> dict | None:
                 "Бот умеет: показывать погоду (weather), создавать ивент/событие (event), "
                 "запускать викторину/квиз (quiz), сохранять анкету пользователя (profile), "
                 "давать тему для разговора или вопрос (topic). "
-                "Если сообщение явно просит одну из этих функций — но НЕ через стандартную команду или фразу — "
-                "верни JSON. Если сообщение это обычный вопрос, просьба пошутить, поболтать, дать совет, "
-                "рассказать факт — то intent должен быть 'none'.\n\n"
+                "ПРАВИЛА:\n"
+                "- 'weather' — ТОЛЬКО если явно спрашивают про погоду, температуру, дождь, ветер, солнце.\n"
+                "- 'event' — ТОЛЬКО если хотят создать ивент, встречу, мероприятие, сходить куда-то.\n"
+                "- 'quiz' — ТОЛЬКО если хотят викторину, вопрос с вариантами, угадать что-то.\n"
+                "- 'profile' — ТОЛЬКО если хотят сохранить информацию о себе в анкету.\n"
+                "- 'topic' — ТОЛЬКО если хотят тему для разговора или провокационный вопрос.\n"
+                "- 'none' — всё остальное: анекдоты, гороскопы, советы, факты, просто поболтать, "
+                "любые другие вопросы не из списка выше.\n"
+                "Гороскоп — это 'none', не weather!\n"
                 "Отвечай СТРОГО в JSON формате без пояснений:\n"
-                '{"intent": "weather|event|quiz|profile|topic|none", "period": "today|tomorrow|week|null"}\n\n'
-                "period заполняй только для weather (когда из текста понятно про какой день речь), иначе null."
+                '{"intent": "weather|event|quiz|profile|topic|none", "period": "today|tomorrow|week|null"}\n'
+                "period заполняй только для weather."
             )},
             {"role": "user", "content": question}
         ],
-        "max_tokens": 100,
-        "temperature": 0.1,
+        "max_tokens": 80,
+        "temperature": 0.0,
     }
     try:
         async with aiohttp.ClientSession() as s:
