@@ -626,7 +626,11 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         # 2а. Голосування
-        _vote_phrases = ("создай голосование", "создать голосование", "голосование", "голосування", "опрос создай")
+        _vote_phrases = (
+            "создай голосование", "создать голосование", "голосование", "голосування",
+            "опрос создай", "создай опрос", "створи опитування", "зроби опитування",
+            "опитування", "проведи опрос", "давай проголосуем", "проголосуємо",
+        )
         if any(ep in low for ep in _vote_phrases):
             title_part = _after_name
             for ep in _vote_phrases:
