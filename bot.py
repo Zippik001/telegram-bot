@@ -644,6 +644,29 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
+        # 2а. Квіз з кастомною темою: "Бендер, quiz космос" або "Бендер, квіз про кіно"
+        _quiz_prefixes = ("quiz ", "квиз ", "квіз ", "вікторина ", "викторина ")
+        if any(_after_name_low.startswith(p) for p in _quiz_prefixes):
+            for p in _quiz_prefixes:
+                if _after_name_low.startswith(p):
+                    quiz_topic = _after_name[len(p):].strip()
+                    break
+            else:
+                quiz_topic = None
+            if quiz_topic:
+                tmp = await update.message.reply_text(f"🧠 Генерирую квиз на тему «{quiz_topic}»...")
+                quiz = await ask_ai_quiz(quiz_topic)
+                if not quiz:
+                    await tmp.edit_text("😔 Не удалось сгенерировать вопрос.")
+                    return
+                try:
+                    await tmp.delete()
+                except Exception:
+                    pass
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
+                await _send_quiz(context.bot, chat_id, quiz, context)
+                return
+
         # 2а. Голосування
         _vote_phrases = (
             "создай голосование", "создать голосование", "голосование", "голосування",
@@ -744,14 +767,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await tmp.delete()
                 except Exception:
                     pass
-                sent_q = await context.bot.send_poll(
-                    chat_id, f"🧠 {quiz['question']}", quiz["options"],
-                    type="quiz", correct_option_id=quiz["correct_index"], is_anonymous=False,
-                )
-                context.bot_data[f"quiz_{sent_q.poll.id}"] = {
-                    "chat_id": chat_id, "correct_option_id": quiz["correct_index"],
-                }
-                _schedule_delete(context, chat_id, sent_q.message_id, 7200)
+                await _send_quiz(context.bot, chat_id, quiz, context)
                 _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
@@ -1013,13 +1029,13 @@ async def detect_intent(question: str) -> dict | None:
     return None
 
 
-async def ask_ai_quiz() -> dict | None:
+async def ask_ai_quiz(custom_topic: str | None = None) -> dict | None:
     """Генерирует квиз-вопрос с 4 вариантами через ИИ. Возвращает dict с question, options, correct_index."""
     import os, json as _json
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         return None
-    topic = random.choice(QUIZ_TOPICS)
+    topic = custom_topic if custom_topic else random.choice(QUIZ_TOPICS)
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -1057,6 +1073,7 @@ async def ask_ai_quiz() -> dict | None:
                     quiz = _json.loads(raw.strip())
                     if "question" in quiz and "options" in quiz and "correct_index" in quiz:
                         if len(quiz["options"]) == 4 and 0 <= quiz["correct_index"] <= 3:
+                            quiz["topic"] = topic
                             return quiz
     except Exception as e:
         logger.error(f"ask_ai_quiz: {e}")
@@ -1086,21 +1103,12 @@ async def sched_quiz(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"sched_quiz send_poll: {e}")
 
-async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ручной запуск викторины."""
-    chat_id = update.effective_chat.id
-    msg = await update.message.reply_text("🧠 Генерирую вопрос...")
-    quiz = await ask_ai_quiz()
-    if not quiz:
-        await msg.edit_text("😔 Не удалось сгенерировать вопрос. Попробуй позже.")
-        return
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-    sent = await context.bot.send_poll(
+async def _send_quiz(bot, chat_id: int, quiz: dict, context) -> None:
+    """Надсилає квіз-poll і зберігає для нарахування балів."""
+    topic_label = f" [{quiz.get('topic', '')}]" if quiz.get("topic") else ""
+    sent = await bot.send_poll(
         chat_id,
-        f"🧠 {quiz['question']}",
+        f"🧠{topic_label} {quiz['question']}",
         quiz["options"],
         type="quiz",
         correct_option_id=quiz["correct_index"],
@@ -1111,6 +1119,22 @@ async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "correct_option_id": quiz["correct_index"],
     }
     _schedule_delete(context, chat_id, sent.message_id, 7200)
+
+async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ручной запуск викторины. /quiz [тема]"""
+    chat_id = update.effective_chat.id
+    custom_topic = " ".join(context.args).strip() if context.args else None
+    hint = f" на тему «{custom_topic}»" if custom_topic else ""
+    msg = await update.message.reply_text(f"🧠 Генерирую вопрос{hint}...")
+    quiz = await ask_ai_quiz(custom_topic)
+    if not quiz:
+        await msg.edit_text("😔 Не удалось сгенерировать вопрос. Попробуй позже.")
+        return
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    await _send_quiz(context.bot, chat_id, quiz, context)
 
 async def _auto_delete(bot, chat_id: int, message_id: int, delay: int = 120):
     """Schedule deletion of a message after `delay` seconds."""
@@ -2582,19 +2606,7 @@ async def cb_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await tmp.delete()
         except Exception:
             pass
-        sent_q = await context.bot.send_poll(
-            chat_id_q,
-            f"🧠 {quiz['question']}",
-            quiz["options"],
-            type="quiz",
-            correct_option_id=quiz["correct_index"],
-            is_anonymous=False,
-        )
-        context.bot_data[f"quiz_{sent_q.poll.id}"] = {
-            "chat_id": chat_id_q,
-            "correct_option_id": quiz["correct_index"],
-        }
-        _schedule_delete(context, chat_id_q, sent_q.message_id, 7200)
+        await _send_quiz(context.bot, chat_id_q, quiz, context)
 
     elif action == "howto":
         howto_text = (
