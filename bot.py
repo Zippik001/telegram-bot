@@ -1508,6 +1508,10 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if poll:
             new_opt = update.message.text.strip()
             if new_opt:
+                # Зберігаємо для наступних опитувань
+                _poll_custom_options.setdefault(chat_id, [])
+                if new_opt not in _poll_custom_options[chat_id]:
+                    _poll_custom_options[chat_id].append(new_opt)
                 if poll.get("draft"):
                     poll.setdefault("custom_options", []).append(new_opt)
                     sent = await update.message.reply_text(f"✅ Вариант «{new_opt}» добавлен!")
@@ -3039,6 +3043,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # { chat_id: { poll_id: { title, options: [{text, voters:[uid,...]}], msg_id, author_id } } }
 _polls: dict = {}
 _poll_counter: int = 0
+_poll_custom_options: dict = {}  # chat_id -> [варіанти що добавляли раніше]
 
 def _next_poll_id() -> int:
     global _poll_counter
@@ -3058,24 +3063,22 @@ def _poll_text(poll: dict) -> str:
     for i, opt in enumerate(poll["options"]):
         voters = opt["voters"]
         count = len(voters)
-        names = ", ".join(v["name"] for v in voters) if voters else "—"
-        bar = "▓" * count + "░" * max(0, 5 - count)
-        lines.append(f"{bar} *{opt['text']}* — {count} {'голос' if count==1 else 'голоса' if 2<=count<=4 else 'голосов'}")
-        if voters:
-            lines.append(f"   👥 {names}")
+        names = ", ".join(v["name"] for v in voters) if voters else ""
+        count_str = f"{count} {'голос' if count==1 else 'голоса' if 2<=count<=4 else 'голосов'}"
+        line = f"• *{opt['text']}* — {count_str}"
+        if names:
+            line += f"\n  👥 {names}"
+        lines.append(line)
     return "\n".join(lines)
 
 def _poll_kb(poll: dict, poll_id: int) -> InlineKeyboardMarkup:
     rows = []
     for i, opt in enumerate(poll["options"]):
-        rows.append([InlineKeyboardButton(
-            f"{'✅ ' if False else ''}{opt['text']}",
-            callback_data=f"vote_{poll_id}_{i}"
-        )])
-    rows.append([
-        InlineKeyboardButton("➕ Добавить вариант", callback_data=f"poll_add_{poll_id}"),
-        InlineKeyboardButton("🗑 Закрыть", callback_data=f"poll_close_{poll_id}"),
-    ])
+        rows.append([
+            InlineKeyboardButton(opt["text"], callback_data=f"vote_{poll_id}_{i}"),
+            InlineKeyboardButton("❌", callback_data=f"poll_del_{poll_id}_{i}"),
+        ])
+    rows.append([InlineKeyboardButton("➕ Добавить вариант", callback_data=f"poll_add_{poll_id}")])
     return InlineKeyboardMarkup(rows)
 
 async def cmd_poll_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3095,10 +3098,15 @@ async def _create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE, title
     user = update.effective_user
     poll_id = _next_poll_id()
 
-    # Пропонуємо вибрати з дефолтних варіантів
+    # Дефолтні + раніше додані кастомні варіанти
+    all_opts = list(POLL_DEFAULT_OPTIONS)
+    for c in _poll_custom_options.get(chat_id, []):
+        if c not in all_opts:
+            all_opts.append(c)
+    _polls[chat_id][poll_id]["all_options"] = all_opts
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(opt, callback_data=f"padd_{poll_id}_{i}")]
-        for i, opt in enumerate(POLL_DEFAULT_OPTIONS)
+        for i, opt in enumerate(all_opts)
     ] + [[
         InlineKeyboardButton("✅ Создать голосование!", callback_data=f"pstart_{poll_id}"),
         InlineKeyboardButton("✏️ Свой вариант", callback_data=f"pcustom_{poll_id}"),
@@ -3138,7 +3146,7 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         poll = _polls.get(chat_id, {}).get(poll_id)
         if not poll:
             return
-        opt_text = POLL_DEFAULT_OPTIONS[opt_idx]
+        opt_text = poll.get("all_options", POLL_DEFAULT_OPTIONS)[opt_idx]
         selected = poll.get("selected", [])
         if opt_idx in selected:
             selected.remove(opt_idx)
@@ -3146,12 +3154,13 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
             selected.append(opt_idx)
         poll["selected"] = selected
 
+        all_opts = poll.get("all_options", POLL_DEFAULT_OPTIONS)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(
                 ("✅ " if i in selected else "") + opt,
                 callback_data=f"padd_{poll_id}_{i}"
             )]
-            for i, opt in enumerate(POLL_DEFAULT_OPTIONS)
+            for i, opt in enumerate(all_opts)
         ] + [[
             InlineKeyboardButton("✅ Создать голосование!", callback_data=f"pstart_{poll_id}"),
             InlineKeyboardButton("✏️ Свой вариант", callback_data=f"pcustom_{poll_id}"),
@@ -3178,40 +3187,30 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         poll = _polls.get(chat_id, {}).get(poll_id)
         if not poll:
             return
-        # Зібрати вибрані варіанти активності
         options = []
+        all_opts = poll.get("all_options", POLL_DEFAULT_OPTIONS)
         for i in poll.get("selected", []):
-            options.append({"text": POLL_DEFAULT_OPTIONS[i], "voters": []})
+            options.append({"text": all_opts[i], "voters": []})
         for custom in poll.get("custom_options", []):
             options.append({"text": custom, "voters": []})
         if not options:
             await q.answer("⚠️ Выбери хотя бы один вариант!", show_alert=True)
             return
         poll["options"] = options
-        poll["draft_dates"] = True
-
-        # Крок 2 — вибір дат
-        now = datetime.now(KYIV_TZ)
-        weekdays_ru = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
-        date_buttons = []
-        for offset in range(1, 8):
-            d = now + timedelta(days=offset)
-            wd = weekdays_ru[d.weekday()]
-            label = f"{wd} {d.strftime('%d.%m')}"
-            date_buttons.append(
-                InlineKeyboardButton(label, callback_data=f"pdate_{poll_id}_{d.strftime('%d.%m')}")
-            )
-        rows = [date_buttons[:3], date_buttons[3:6], [date_buttons[6]]]
-        rows.append([
-            InlineKeyboardButton("📅 Своя дата", callback_data=f"pdatecustom_{poll_id}"),
-            InlineKeyboardButton("⏩ Без даты",  callback_data=f"pdatenone_{poll_id}"),
-        ])
+        poll["draft"] = False
         try:
-            await q.edit_message_text(
-                f"📊 *{poll['title']}*\n\nТеперь выбери дату (можно несколько):",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(rows)
-            )
+            await q.message.delete()
+        except Exception:
+            pass
+        sent = await context.bot.send_message(
+            chat_id, _poll_text(poll),
+            parse_mode="Markdown",
+            reply_markup=_poll_kb(poll, poll_id)
+        )
+        poll["msg_id"] = sent.message_id
+        # Закріпити
+        try:
+            await context.bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
         except Exception:
             pass
         return
@@ -3292,6 +3291,34 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_poll_kb(poll, poll_id)
         )
         poll["msg_id"] = sent.message_id
+        return
+
+
+    # Видалити варіант (адмін або автор)
+    if data.startswith("poll_del_"):
+        parts = data.split("_")
+        poll_id = int(parts[2])
+        opt_idx = int(parts[3])
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        is_admin = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if user.id != poll["author_id"] and not is_admin:
+            await q.answer("⛔ Только автор или администратор.", show_alert=True)
+            return
+        if 0 <= opt_idx < len(poll["options"]):
+            removed = poll["options"].pop(opt_idx)
+            await q.answer(f"Вариант «{removed['text']}» удалён.")
+            if poll.get("msg_id"):
+                try:
+                    await context.bot.edit_message_text(
+                        _poll_text(poll), chat_id=chat_id,
+                        message_id=poll["msg_id"],
+                        parse_mode="Markdown",
+                        reply_markup=_poll_kb(poll, poll_id)
+                    )
+                except Exception:
+                    pass
         return
 
     # Голосування за варіант
@@ -3409,7 +3436,7 @@ def main():
     app.add_handler(CommandHandler("events",        cmd_events_list))
     app.add_handler(CommandHandler("clearevents",   cmd_clear_events))
     app.add_handler(CommandHandler("vote",           cmd_poll_create))
-    app.add_handler(CallbackQueryHandler(cb_poll, pattern=r"^(vote_|padd_|pcustom_|pstart_|poll_add_|poll_close_|pdate_|pdatecustom_|pdatenone_)"))
+    app.add_handler(CallbackQueryHandler(cb_poll, pattern=r"^(vote_|padd_|pcustom_|pstart_|poll_add_|poll_del_)"))
     app.add_handler(CommandHandler("fixpinned",     cmd_fix_pinned_events))
     app.add_handler(CommandHandler("weather",       cmd_weather))
     app.add_handler(CommandHandler("question",      cmd_question))
