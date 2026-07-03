@@ -3078,11 +3078,9 @@ def _poll_text(poll: dict) -> str:
 def _poll_kb(poll: dict, poll_id: int) -> InlineKeyboardMarkup:
     rows = []
     for i, opt in enumerate(poll["options"]):
-        rows.append([
-            InlineKeyboardButton(opt["text"], callback_data=f"vote_{poll_id}_{i}"),
-            InlineKeyboardButton("❌", callback_data=f"poll_del_{poll_id}_{i}"),
-        ])
+        rows.append([InlineKeyboardButton(opt["text"], callback_data=f"vote_{poll_id}_{i}")])
     rows.append([InlineKeyboardButton("➕ Добавить вариант", callback_data=f"poll_add_{poll_id}")])
+    rows.append([InlineKeyboardButton("✏️ Редактировать опрос", callback_data=f"poll_edit_menu_{poll_id}")])
     return InlineKeyboardMarkup(rows)
 
 async def cmd_poll_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3300,6 +3298,34 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     # Видалити варіант (адмін або автор)
+    # Меню редагування опитування
+    if data.startswith("poll_edit_menu_"):
+        poll_id = int(data.replace("poll_edit_menu_", ""))
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        is_admin = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if user.id != poll["author_id"] and not is_admin:
+            await q.answer("⛔ Только автор или администратор.", show_alert=True)
+            return
+        await q.answer()
+        # Показуємо меню: видалити варіант, видалити ціле опитування, назад
+        rows = []
+        for i, opt in enumerate(poll["options"]):
+            rows.append([InlineKeyboardButton(
+                f"❌ {opt['text']}", callback_data=f"poll_del_{poll_id}_{i}"
+            )])
+        rows.append([InlineKeyboardButton("🗑 Удалить опрос", callback_data=f"poll_delete_all_{poll_id}")])
+        rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"poll_back_{poll_id}")])
+        sent = await q.message.reply_text(
+            "✏️ *Редактирование опроса*\n\nВыбери вариант для удаления или удали весь опрос:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(rows)
+        )
+        _schedule_delete(context, chat_id, sent.message_id, 60)
+        return
+
+    # Видалити один варіант через меню
     if data.startswith("poll_del_"):
         parts = data.split("_")
         poll_id = int(parts[2])
@@ -3313,6 +3339,14 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if 0 <= opt_idx < len(poll["options"]):
             removed = poll["options"].pop(opt_idx)
+            # Видаляємо зі збережених варіантів щоб не пропонувати знову
+            saved = _poll_custom_options.get(chat_id, [])
+            if removed["text"] in saved:
+                saved.remove(removed["text"])
+            # Оновлюємо all_options
+            all_opts = poll.get("all_options", [])
+            if removed["text"] in all_opts:
+                all_opts.remove(removed["text"])
             await q.answer(f"Вариант «{removed['text']}» удалён.")
             if poll.get("msg_id"):
                 try:
@@ -3324,6 +3358,48 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 except Exception:
                     pass
+            # Закриваємо меню редагування
+            try:
+                await q.message.delete()
+            except Exception:
+                pass
+        return
+
+    # Видалити ціле опитування
+    if data.startswith("poll_delete_all_"):
+        poll_id = int(data.replace("poll_delete_all_", ""))
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        is_admin = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if user.id != poll["author_id"] and not is_admin:
+            await q.answer("⛔ Только автор или администратор.", show_alert=True)
+            return
+        # Відкріпити і видалити
+        if poll.get("msg_id"):
+            try:
+                await context.bot.unpin_chat_message(chat_id, poll["msg_id"])
+            except Exception:
+                pass
+            try:
+                await context.bot.delete_message(chat_id, poll["msg_id"])
+            except Exception:
+                pass
+        _polls.get(chat_id, {}).pop(poll_id, None)
+        await q.answer("✅ Опрос удалён.")
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Назад з меню редагування
+    if data.startswith("poll_back_"):
+        await q.answer()
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
         return
 
     # Голосування за варіант
@@ -3441,7 +3517,7 @@ def main():
     app.add_handler(CommandHandler("events",        cmd_events_list))
     app.add_handler(CommandHandler("clearevents",   cmd_clear_events))
     app.add_handler(CommandHandler("vote",           cmd_poll_create))
-    app.add_handler(CallbackQueryHandler(cb_poll, pattern=r"^(vote_|padd_|pcustom_|pstart_|poll_add_|poll_del_)"))
+    app.add_handler(CallbackQueryHandler(cb_poll, pattern=r"^(vote_|padd_|pcustom_|pstart_|poll_add_|poll_del_|poll_edit_menu_|poll_delete_all_|poll_back_)"))
     app.add_handler(CommandHandler("fixpinned",     cmd_fix_pinned_events))
     app.add_handler(CommandHandler("weather",       cmd_weather))
     app.add_handler(CommandHandler("question",      cmd_question))
