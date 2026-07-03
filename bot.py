@@ -3107,14 +3107,6 @@ async def _create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE, title
     for c in _poll_custom_options.get(chat_id, []):
         if c not in all_opts:
             all_opts.append(c)
-    _polls[chat_id][poll_id]["all_options"] = all_opts
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(opt, callback_data=f"padd_{poll_id}_{i}")]
-        for i, opt in enumerate(all_opts)
-    ] + [[
-        InlineKeyboardButton("✅ Создать голосование!", callback_data=f"pstart_{poll_id}"),
-        InlineKeyboardButton("✏️ Свой вариант", callback_data=f"pcustom_{poll_id}"),
-    ]])
 
     # Зберігаємо чернетку
     _polls.setdefault(chat_id, {})[poll_id] = {
@@ -3123,9 +3115,18 @@ async def _create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE, title
         "msg_id": None,
         "author_id": user.id,
         "draft": True,
-        "selected": [],  # вибрані дефолтні варіанти
+        "selected": [],
+        "all_options": all_opts,
     }
     context.bot_data[f"poll_draft_{poll_id}"] = {"chat_id": chat_id, "title": title}
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(opt, callback_data=f"padd_{poll_id}_{i}")]
+        for i, opt in enumerate(all_opts)
+    ] + [[
+        InlineKeyboardButton("✅ Создать голосование!", callback_data=f"pstart_{poll_id}"),
+        InlineKeyboardButton("✏️ Свой вариант", callback_data=f"pcustom_{poll_id}"),
+    ]])
 
     sent = await update.message.reply_text(
         f"📊 *{title}*\n\nВыбери варианты (можно несколько) или добавь свой:",
