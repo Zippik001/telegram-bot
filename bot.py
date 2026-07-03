@@ -455,6 +455,23 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         # Якщо немає reply або не адмін — не перехоплюємо, даємо продовжити
 
+    # "Закріпи" / "Закрепи" — закріплює повідомлення на яке відповіли
+    _pin_triggers = ("закріпи", "закрепи", "закрепить", "pin this")
+    if any(low.strip().rstrip("!?.") == t for t in _pin_triggers):
+        reply = update.message.reply_to_message
+        is_adm = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if reply and is_adm:
+            try:
+                await context.bot.pin_chat_message(chat_id, reply.message_id, disable_notification=True)
+            except Exception as e:
+                logger.error(f"PIN failed: {e}")
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            return
+        # Не адмін або немає reply — продовжуємо
+
     # ── Reply "Анкета" на чиєсь повідомлення — записати той текст як анкету автора оригіналу ──
     if low.strip() in ("анкета", "анкету", "анкеta", "anketa"):
         reply = update.message.reply_to_message
@@ -3211,11 +3228,6 @@ async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_poll_kb(poll, poll_id)
         )
         poll["msg_id"] = sent.message_id
-        # Закріпити
-        try:
-            await context.bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
-        except Exception:
-            pass
         return
 
     # Вибір дати для голосування
