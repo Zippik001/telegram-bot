@@ -644,28 +644,31 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
-        # 2а. Квіз з кастомною темою: "Бендер, quiz космос" або "Бендер, квіз про кіно"
-        _quiz_prefixes = ("quiz ", "квиз ", "квіз ", "вікторина ", "викторина ")
-        if any(_after_name_low.startswith(p) for p in _quiz_prefixes):
-            for p in _quiz_prefixes:
-                if _after_name_low.startswith(p):
-                    quiz_topic = _after_name[len(p):].strip()
-                    break
-            else:
-                quiz_topic = None
-            if quiz_topic:
-                tmp = await update.message.reply_text(f"🧠 Генерирую квиз на тему «{quiz_topic}»...")
-                quiz = await ask_ai_quiz(quiz_topic)
-                if not quiz:
-                    await tmp.edit_text("😔 Не удалось сгенерировать вопрос.")
-                    return
-                try:
-                    await tmp.delete()
-                except Exception:
-                    pass
-                _schedule_delete(context, chat_id, update.message.message_id, 120)
-                await _send_quiz(context.bot, chat_id, quiz, context)
+        # 2а. Квіз з кастомною темою: "Бендер, quiz космос" або "Бендер, зроби квіз про кіно"
+        _quiz_prefixes = (
+            "quiz ", "квиз ", "квіз ", "вікторина ", "викторина ",
+            "зроби квіз про ", "зроби квіз на ", "зроби квіз ",
+            "сделай квиз про ", "сделай квиз на ", "сделай квиз ",
+            "квіз про ", "квиз про ", "квіз на тему ", "квиз на тему ",
+        )
+        _matched_topic = None
+        for p in _quiz_prefixes:
+            if _after_name_low.startswith(p):
+                _matched_topic = _after_name[len(p):].strip()
+                break
+        if _matched_topic:
+            tmp = await update.message.reply_text(f"🧠 Генерирую квиз на тему «{_matched_topic}»...")
+            quiz = await ask_ai_quiz(_matched_topic)
+            if not quiz:
+                await tmp.edit_text("😔 Не удалось сгенерировать вопрос.")
                 return
+            try:
+                await tmp.delete()
+            except Exception:
+                pass
+            _schedule_delete(context, chat_id, update.message.message_id, 120)
+            await _send_quiz(context.bot, chat_id, quiz, context)
+            return
 
         # 2а. Голосування
         _vote_phrases = (
@@ -758,8 +761,10 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             elif intent == "quiz":
-                tmp = await update.message.reply_text("🧠 Генерирую вопрос...")
-                quiz = await ask_ai_quiz()
+                quiz_t = intent_result.get("title") or None
+                hint = f" на тему «{quiz_t}»" if quiz_t else ""
+                tmp = await update.message.reply_text(f"🧠 Генерирую квиз{hint}...")
+                quiz = await ask_ai_quiz(quiz_t)
                 if not quiz:
                     await tmp.edit_text("😔 Не удалось сгенерировать вопрос. Попробуй позже.")
                     return
@@ -1002,8 +1007,8 @@ async def detect_intent(question: str) -> dict | None:
                 "любые другие вопросы не из списка выше.\n"
                 "Гороскоп — это 'none', не weather!\n"
                 "Отвечай СТРОГО в JSON формате без пояснений:\n"
-                '{"intent": "weather|event|quiz|profile|topic|vote|none", "period": "today|tomorrow|week|null", "title": "тема голосования если vote иначе null"}\n'
-                "period заполняй только для weather. title заполняй только для vote — извлеки тему из текста."
+                '{"intent": "weather|event|quiz|profile|topic|vote|none", "period": "today|tomorrow|week|null", "title": "тема голосования если vote, тема квиза если quiz, иначе null"}\n'
+                "period заполняй только для weather. title заполняй для vote И quiz — извлеки тему из текста."
             )},
             {"role": "user", "content": question}
         ],
