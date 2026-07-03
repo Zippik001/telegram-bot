@@ -404,13 +404,14 @@ async def sched_weather(context: ContextTypes.DEFAULT_TYPE):
 
 async def sched_morning_news(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.data["chat_id"]
-    messages = [
-        "📰 *Новость дня:* Учёные выяснили, что кофе с утра — это не зависимость, а стратегия выживания ☕",
-        "📰 *Новость дня:* Исследование показало: люди которые отвечают на сообщения сразу — редкий вид 🦄",
-        "📰 *Новость дня:* Эксперты подтвердили: понедельник существует, и с этим ничего не поделать 📅",
-        "📰 *Новость дня:* Зафиксировано рекордное количество людей которые сказали «я уже иду» и не вышли 🚶",
-    ]
-    await context.bot.send_message(chat_id, random.choice(messages), parse_mode="Markdown")
+    prompt = (
+        "Придумай одну короткую абсурдную смешную новость на любую тему в стиле сатирического сайта. "
+        "Темы: наука, технологии, еда, животные, офисная жизнь, городская жизнь — что угодно случайное. "
+        "Максимум 2 предложения. Новость уникальная, не повторяй шаблонные темы. "
+        "Начни сразу с новости без вступлений. Пиши на русском."
+    )
+    news = await ask_ai(prompt)
+    await context.bot.send_message(chat_id, f"📰 *Новость дня:* {news}", parse_mode="Markdown")
 
 # ── Трекер — анкета + теги + активность ───────
 
@@ -428,8 +429,9 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     activity[chat_id][user.id]["name"]  = user.first_name
     activity[chat_id][user.id]["count"] += 1
 
-    # Оновлюємо час останнього повідомлення
+    # Оновлюємо час останнього повідомлення і скидаємо флаг тиші
     _last_message_time[chat_id] = datetime.now(KYIV_TZ).timestamp()
+    context.bot_data.pop(f"silence_sent_{chat_id}", None)
 
     # Автоматично запускаємо jobs якщо ще не запущені і не вимкнені явно
     if storage.get_autorun(chat_id) and not context.job_queue.get_jobs_by_name(f"{chat_id}_weather"):
@@ -2308,58 +2310,66 @@ async def generate_bender_icebreaker() -> str:
     return await ask_ai(random.choice(prompts))
 
 async def sched_anketa_reminder(context: ContextTypes.DEFAULT_TYPE):
-    """Щодня о 17:00 — нагадування заповнити анкету тим хто цього не зробив."""
+    """Раз на тиждень (понеділок 12:00) — нагадування заповнити анкету."""
     chat_id = context.job.data["chat_id"]
     tags = storage.load_tags()
     profiles = storage.load_profiles()
 
-    # Знаходимо тих хто є в тегах але не має анкети
     missing = []
     for uid_str, u in tags.items():
         uid = int(uid_str)
         if uid not in profiles and str(uid) not in profiles:
-            mention = f"@{u['username']}" if u.get("username") else u["name"]
-            missing.append(mention)
+            missing.append(u["name"])
 
     if not missing:
-        return  # Всі заповнили — не спамимо
+        return
 
-    names_str = ", ".join(missing[:10])
-    if len(missing) > 10:
-        names_str += f" и ещё {len(missing)-10}"
-
+    count = len(missing)
     text = (
-        f"📋 Бендер провёл перекличку и выяснил:\n\n"
-        f"{names_str} — анкета не заполнена!\n\n"
-        f"Я не буду просить дважды... ладно, буду. Заполните анкету:\n"
-        f"Напиши в чат: о себе [расскажи кто ты, откуда, чем занимаешься]\n\n"
-        f"Это займёт 30 секунд. Даже я, Бендер, заполнил бы быстрее — "
-        f"если бы у меня была анкета. И душа."
+        f"📋 Напоминаю: {count} участник{'а' if 2<=count<=4 else 'ов' if count>4 else ''} "
+        f"ещё не заполнил{'и' if count>1 else ''} анкету.\n\n"
+        f"Напиши в чат: *о себе* и расскажи кто ты — это займёт минуту 🙂"
     )
-    sent = await context.bot.send_message(chat_id, text)
+    sent = await context.bot.send_message(chat_id, text, parse_mode="Markdown")
     _schedule_delete(context, chat_id, sent.message_id, 7200)
 
 
+SILENCE_QUESTIONS = [
+    "🤖 Тишина... Хей, чем сейчас занимаетесь? Расскажите — Бендер слушает (и немного осуждает).",
+    "🤖 Пока вы молчите, я успел выпить три бочки пива и придумать план ограбления галактики. А вы что делали?",
+    "🤖 Эй! Что сегодня видели интересного? Город большой, должно же что-то было.",
+    "🤖 Молчание — знак согласия. С чем вы сейчас согласны? 🤔",
+    "🤖 У кого-нибудь есть планы на эти выходные или мы снова будем «может быть, выйдем»?",
+    "🤖 Вопрос дня: если бы вы могли прямо сейчас оказаться в любом месте Братиславы — где бы это было?",
+    "🤖 Что последнее вас рассмешило? Поделитесь — группа нуждается в позитиве.",
+    "🤖 Кто что смотрит/читает/слушает последнее время? Хочу знать чем вы забиваете головы.",
+    "🤖 Если бы сегодня вечером внезапно собрались — куда бы пошли без долгих обсуждений?",
+    "🤖 Какой была ваша лучшая еда за эту неделю? Серьёзный вопрос.",
+    "🤖 О чём вы сейчас думаете? Можно честно, здесь все свои.",
+    "🤖 Покажите фото чего угодно что вам сейчас нравится. Или не нравится. Главное — жизнь.",
+]
+
 async def sched_check_silence(context: ContextTypes.DEFAULT_TYPE):
-    """Кожні 5 годин — якщо тиша > 5 годин, Бендер сам починає розмову через ШІ."""
+    """Кожні 30 хв — якщо тиша > 2 годин між 10:00 і 22:00, задає питання."""
     chat_id = context.job.data["chat_id"]
-    now = datetime.now(KYIV_TZ).timestamp()
+    now = datetime.now(KYIV_TZ)
+    hour = now.hour
+    if hour < 7 or hour >= 22:
+        return
+
     last = _last_message_time.get(chat_id)
-
-    # Тільки якщо ніхто не писав більше 5 годин і зараз між 9:00 і 23:00
-    hour = datetime.now(KYIV_TZ).hour
-    if hour < 9 or hour >= 23:
-        return
-    if last is None or (now - last) < 7200:
+    if last is None or (now.timestamp() - last) < 7200:
         return
 
+    # Перевіряємо чи вже є невідповіді повідомлення (silence_sent)
+    if context.bot_data.get(f"silence_sent_{chat_id}"):
+        return
+
+    question = random.choice(SILENCE_QUESTIONS)
     try:
-        text = await generate_bender_icebreaker()
-        sent = await context.bot.send_message(chat_id, f"🤖 {text}")
-        # Оновлюємо час щоб не спамити
-        _last_message_time[chat_id] = datetime.now(KYIV_TZ).timestamp()
-        # Авто-видалення через 6 годин
-        _schedule_delete(context, chat_id, sent.message_id, 7200)
+        await context.bot.send_message(chat_id, question)
+        # Позначаємо що вже відправили — не відправляти знову поки хтось не напише
+        context.bot_data[f"silence_sent_{chat_id}"] = True
     except Exception as e:
         logger.error(f"sched_check_silence: {e}")
 
@@ -2383,7 +2393,7 @@ def schedule_auto_jobs(jq, chat_id):
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
-    jq.run_daily(sched_anketa_reminder,       time=time(17,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_anketa")
+    jq.run_daily(sched_anketa_reminder,       time=time(16,0,tzinfo=KYIV_TZ),  days=(4,),            data={"chat_id":chat_id}, name=f"{chat_id}_anketa")
     jq.run_repeating(sched_check_silence,     interval=1800, first=300,          data={"chat_id":chat_id}, name=f"{chat_id}_silence")
 
 async def cmd_autostart(update: Update, context: ContextTypes.DEFAULT_TYPE):
