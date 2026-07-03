@@ -625,6 +625,18 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
+        # 2а. Голосування
+        _vote_phrases = ("создай голосование", "создать голосование", "голосование", "голосування", "опрос создай")
+        if any(ep in low for ep in _vote_phrases):
+            title_part = _after_name
+            for ep in _vote_phrases:
+                title_part = title_part.lower().replace(ep, "").strip(" -:,")
+            if not title_part:
+                title_part = "Куди йдемо?"
+            await _create_poll(update, context, title_part.capitalize())
+            _schedule_delete(context, chat_id, update.message.message_id, 120)
+            return
+
         # 2. Створення івенту
         _event_phrases = (
             "добав івент", "добав ивент", "добавь ивент", "добавь событие",
@@ -723,6 +735,12 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif intent == "topic":
                 item = random.choice(all_qt_items())
                 await update.message.reply_text(item, parse_mode="Markdown")
+                return
+
+            elif intent == "vote":
+                title = intent_result.get("title") or _after_name
+                await _create_poll(update, context, title.capitalize())
+                _schedule_delete(context, chat_id, update.message.message_id, 120)
                 return
 
             elif intent == "profile":
@@ -931,19 +949,22 @@ async def detect_intent(question: str) -> dict | None:
                 "Ты определяешь намерение пользователя в чате Telegram-бота Бендера. "
                 "Бот умеет: показывать погоду (weather), создавать ивент/событие (event), "
                 "запускать викторину/квиз (quiz), сохранять анкету пользователя (profile), "
-                "давать тему для разговора или вопрос (topic). "
+                "давать тему для разговора или вопрос (topic), "
+                "создавать голосование/опрос (vote). "
                 "ПРАВИЛА:\n"
                 "- 'weather' — ТОЛЬКО если явно спрашивают про погоду, температуру, дождь, ветер, солнце.\n"
                 "- 'event' — ТОЛЬКО если хотят создать ивент, встречу, мероприятие, сходить куда-то.\n"
                 "- 'quiz' — ТОЛЬКО если хотят викторину, вопрос с вариантами, угадать что-то.\n"
                 "- 'profile' — ТОЛЬКО если хотят сохранить информацию о себе в анкету.\n"
                 "- 'topic' — ТОЛЬКО если хотят тему для разговора или провокационный вопрос.\n"
+                "- 'vote' — если хотят проголосовать, выбрать вариант, спросить мнение группы, "
+                "узнать кто куда хочет пойти, принять совместное решение через голосование.\n"
                 "- 'none' — всё остальное: анекдоты, гороскопы, советы, факты, просто поболтать, "
                 "любые другие вопросы не из списка выше.\n"
                 "Гороскоп — это 'none', не weather!\n"
                 "Отвечай СТРОГО в JSON формате без пояснений:\n"
-                '{"intent": "weather|event|quiz|profile|topic|none", "period": "today|tomorrow|week|null"}\n'
-                "period заполняй только для weather."
+                '{"intent": "weather|event|quiz|profile|topic|vote|none", "period": "today|tomorrow|week|null", "title": "тема голосования если vote иначе null"}\n'
+                "period заполняй только для weather. title заполняй только для vote — извлеки тему из текста."
             )},
             {"role": "user", "content": question}
         ],
@@ -1477,6 +1498,53 @@ async def handle_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 except Exception:
                     pass
         context.bot_data.pop(edit_key, None)
+        return
+
+    # Очікування нового варіанту для голосування
+    awaiting_poll = context.bot_data.get(f"awaiting_poll_option_{chat_id}")
+    if awaiting_poll is not None:
+        poll_id = awaiting_poll
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if poll:
+            new_opt = update.message.text.strip()
+            if new_opt:
+                if poll.get("draft"):
+                    poll.setdefault("custom_options", []).append(new_opt)
+                    sent = await update.message.reply_text(f"✅ Вариант «{new_opt}» добавлен!")
+                else:
+                    poll["options"].append({"text": new_opt, "voters": []})
+                    sent = await update.message.reply_text(f"✅ Вариант «{new_opt}» добавлен!")
+                    if poll.get("msg_id"):
+                        try:
+                            await context.bot.edit_message_text(
+                                _poll_text(poll), chat_id=chat_id,
+                                message_id=poll["msg_id"],
+                                parse_mode="Markdown",
+                                reply_markup=_poll_kb(poll, poll_id)
+                            )
+                        except Exception:
+                            pass
+                _schedule_delete(context, chat_id, sent.message_id, 30)
+                _schedule_delete(context, chat_id, update.message.message_id, 30)
+        context.bot_data.pop(f"awaiting_poll_option_{chat_id}", None)
+        return
+
+    # Очікування своєї дати для голосування
+    awaiting_date = context.bot_data.get(f"awaiting_poll_date_{chat_id}")
+    if awaiting_date is not None:
+        poll_id = awaiting_date
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if poll:
+            date_str = update.message.text.strip()
+            poll.setdefault("selected_dates", [])
+            if date_str not in poll["selected_dates"]:
+                poll["selected_dates"].append(date_str)
+            sent = await update.message.reply_text(
+                f"✅ Дата {date_str} добавлена! Можешь выбрать ещё или нажать «Готово»."
+            )
+            _schedule_delete(context, chat_id, sent.message_id, 30)
+            _schedule_delete(context, chat_id, update.message.message_id, 30)
+        context.bot_data.pop(f"awaiting_poll_date_{chat_id}", None)
         return
 
     key     = f"ev_{user.id}_{chat_id}"
@@ -2966,6 +3034,329 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         _quiz_scores[chat_id][user.id]["score"] += 1
 
 
+
+# ── Система голосувань ────────────────────────────────────────────────────────
+# { chat_id: { poll_id: { title, options: [{text, voters:[uid,...]}], msg_id, author_id } } }
+_polls: dict = {}
+_poll_counter: int = 0
+
+def _next_poll_id() -> int:
+    global _poll_counter
+    _poll_counter += 1
+    return _poll_counter
+
+POLL_DEFAULT_OPTIONS = [
+    "☕ Кафе / бар",
+    "🚶 Прогулятись",
+    "🏖 Пляж / природа",
+    "🃏 Мафия",
+    "🎲 Настольные игры",
+]
+
+def _poll_text(poll: dict) -> str:
+    lines = [f"📊 *{poll['title']}*\n"]
+    for i, opt in enumerate(poll["options"]):
+        voters = opt["voters"]
+        count = len(voters)
+        names = ", ".join(v["name"] for v in voters) if voters else "—"
+        bar = "▓" * count + "░" * max(0, 5 - count)
+        lines.append(f"{bar} *{opt['text']}* — {count} {'голос' if count==1 else 'голоса' if 2<=count<=4 else 'голосов'}")
+        if voters:
+            lines.append(f"   👥 {names}")
+    return "\n".join(lines)
+
+def _poll_kb(poll: dict, poll_id: int) -> InlineKeyboardMarkup:
+    rows = []
+    for i, opt in enumerate(poll["options"]):
+        rows.append([InlineKeyboardButton(
+            f"{'✅ ' if False else ''}{opt['text']}",
+            callback_data=f"vote_{poll_id}_{i}"
+        )])
+    rows.append([
+        InlineKeyboardButton("➕ Добавить вариант", callback_data=f"poll_add_{poll_id}"),
+        InlineKeyboardButton("🗑 Закрыть", callback_data=f"poll_close_{poll_id}"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+async def cmd_poll_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Создать новое голосование."""
+    chat_id = update.effective_chat.id
+    args = " ".join(context.args).strip() if context.args else ""
+    if not args:
+        sent = await update.message.reply_text(
+            "📊 Напиши тему голосования:\n/vote Куди йдемо у п'ятницю?"
+        )
+        _schedule_delete(context, chat_id, sent.message_id, 60)
+        return
+    await _create_poll(update, context, args)
+
+async def _create_poll(update: Update, context: ContextTypes.DEFAULT_TYPE, title: str):
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    poll_id = _next_poll_id()
+
+    # Пропонуємо вибрати з дефолтних варіантів
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(opt, callback_data=f"padd_{poll_id}_{i}")]
+        for i, opt in enumerate(POLL_DEFAULT_OPTIONS)
+    ] + [[
+        InlineKeyboardButton("✅ Создать голосование!", callback_data=f"pstart_{poll_id}"),
+        InlineKeyboardButton("✏️ Свой вариант", callback_data=f"pcustom_{poll_id}"),
+    ]])
+
+    # Зберігаємо чернетку
+    _polls.setdefault(chat_id, {})[poll_id] = {
+        "title": title,
+        "options": [],
+        "msg_id": None,
+        "author_id": user.id,
+        "draft": True,
+        "selected": [],  # вибрані дефолтні варіанти
+    }
+    context.bot_data[f"poll_draft_{poll_id}"] = {"chat_id": chat_id, "title": title}
+
+    sent = await update.message.reply_text(
+        f"📊 *{title}*\n\nВыбери варианты (можно несколько) или добавь свой:",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    _polls[chat_id][poll_id]["msg_id"] = sent.message_id
+
+async def cb_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробляє всі кнопки голосування."""
+    q = update.callback_query
+    await q.answer()
+    data = q.data
+    chat_id = q.message.chat_id
+    user = q.from_user
+
+    # Вибір дефолтного варіанту при створенні
+    if data.startswith("padd_"):
+        _, poll_id_s, opt_idx_s = data.split("_", 2)
+        poll_id = int(poll_id_s)
+        opt_idx = int(opt_idx_s)
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        opt_text = POLL_DEFAULT_OPTIONS[opt_idx]
+        selected = poll.get("selected", [])
+        if opt_idx in selected:
+            selected.remove(opt_idx)
+        else:
+            selected.append(opt_idx)
+        poll["selected"] = selected
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                ("✅ " if i in selected else "") + opt,
+                callback_data=f"padd_{poll_id}_{i}"
+            )]
+            for i, opt in enumerate(POLL_DEFAULT_OPTIONS)
+        ] + [[
+            InlineKeyboardButton("✅ Создать голосование!", callback_data=f"pstart_{poll_id}"),
+            InlineKeyboardButton("✏️ Свой вариант", callback_data=f"pcustom_{poll_id}"),
+        ]])
+        try:
+            await q.edit_message_reply_markup(reply_markup=kb)
+        except Exception:
+            pass
+        return
+
+    # Додати свій варіант
+    if data.startswith("pcustom_"):
+        poll_id = int(data.replace("pcustom_", ""))
+        context.bot_data[f"awaiting_poll_option_{chat_id}"] = poll_id
+        sent = await q.message.reply_text(
+            "✏️ Напиши свой вариант следующим сообщением:"
+        )
+        _schedule_delete(context, chat_id, sent.message_id, 60)
+        return
+
+    # Запустити голосування
+    if data.startswith("pstart_"):
+        poll_id = int(data.replace("pstart_", ""))
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        # Зібрати вибрані варіанти активності
+        options = []
+        for i in poll.get("selected", []):
+            options.append({"text": POLL_DEFAULT_OPTIONS[i], "voters": []})
+        for custom in poll.get("custom_options", []):
+            options.append({"text": custom, "voters": []})
+        if not options:
+            await q.answer("⚠️ Выбери хотя бы один вариант!", show_alert=True)
+            return
+        poll["options"] = options
+        poll["draft_dates"] = True
+
+        # Крок 2 — вибір дат
+        now = datetime.now(KYIV_TZ)
+        weekdays_ru = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
+        date_buttons = []
+        for offset in range(1, 8):
+            d = now + timedelta(days=offset)
+            wd = weekdays_ru[d.weekday()]
+            label = f"{wd} {d.strftime('%d.%m')}"
+            date_buttons.append(
+                InlineKeyboardButton(label, callback_data=f"pdate_{poll_id}_{d.strftime('%d.%m')}")
+            )
+        rows = [date_buttons[:3], date_buttons[3:6], [date_buttons[6]]]
+        rows.append([
+            InlineKeyboardButton("📅 Своя дата", callback_data=f"pdatecustom_{poll_id}"),
+            InlineKeyboardButton("⏩ Без даты",  callback_data=f"pdatenone_{poll_id}"),
+        ])
+        try:
+            await q.edit_message_text(
+                f"📊 *{poll['title']}*\n\nТеперь выбери дату (можно несколько):",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(rows)
+            )
+        except Exception:
+            pass
+        return
+
+    # Вибір дати для голосування
+    if data.startswith("pdate_") and not data.startswith("pdatecustom_") and not data.startswith("pdatenone_"):
+        parts = data.split("_", 2)
+        poll_id = int(parts[1])
+        date_str = parts[2]
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        selected_dates = poll.setdefault("selected_dates", [])
+        if date_str in selected_dates:
+            selected_dates.remove(date_str)
+        else:
+            selected_dates.append(date_str)
+
+        now = datetime.now(KYIV_TZ)
+        weekdays_ru = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
+        date_buttons = []
+        for offset in range(1, 8):
+            d = now + timedelta(days=offset)
+            wd = weekdays_ru[d.weekday()]
+            ds = d.strftime('%d.%m')
+            label = ("✅ " if ds in selected_dates else "") + f"{wd} {ds}"
+            date_buttons.append(
+                InlineKeyboardButton(label, callback_data=f"pdate_{poll_id}_{ds}")
+            )
+        rows = [date_buttons[:3], date_buttons[3:6], [date_buttons[6]]]
+        rows.append([
+            InlineKeyboardButton("📅 Своя дата", callback_data=f"pdatecustom_{poll_id}"),
+            InlineKeyboardButton(
+                "✅ Готово!" if selected_dates else "⏩ Без даты",
+                callback_data=f"pdatenone_{poll_id}"
+            ),
+        ])
+        try:
+            await q.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(rows))
+        except Exception:
+            pass
+        return
+
+    # Своя дата
+    if data.startswith("pdatecustom_"):
+        poll_id = int(data.replace("pdatecustom_", ""))
+        context.bot_data[f"awaiting_poll_date_{chat_id}"] = poll_id
+        sent = await q.message.reply_text("📅 Напиши дату в формате дд.мм (например: 15.07):")
+        _schedule_delete(context, chat_id, sent.message_id, 60)
+        return
+
+    # Завершити вибір дат і опублікувати
+    if data.startswith("pdatenone_"):
+        poll_id = int(data.replace("pdatenone_", ""))
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        selected_dates = poll.get("selected_dates", [])
+        # Якщо є дати — додаємо їх як окремі варіанти для кожної активності
+        final_options = []
+        if selected_dates and poll.get("options"):
+            for opt in poll["options"]:
+                for date in selected_dates:
+                    final_options.append({"text": f"{opt['text']} — {date}", "voters": []})
+        else:
+            final_options = poll.get("options", [])
+        poll["options"] = final_options
+        poll["draft"] = False
+        poll["draft_dates"] = False
+        try:
+            await q.message.delete()
+        except Exception:
+            pass
+        sent = await context.bot.send_message(
+            chat_id,
+            _poll_text(poll),
+            parse_mode="Markdown",
+            reply_markup=_poll_kb(poll, poll_id)
+        )
+        poll["msg_id"] = sent.message_id
+        return
+
+    # Голосування за варіант
+    if data.startswith("vote_"):
+        parts = data.split("_")
+        poll_id = int(parts[1])
+        opt_idx = int(parts[2])
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll or poll.get("draft"):
+            return
+        opt = poll["options"][opt_idx]
+        voters = opt["voters"]
+        uid = user.id
+        # Якщо вже голосував за цей — знімаємо
+        existing = next((v for v in voters if v["uid"] == uid), None)
+        if existing:
+            voters.remove(existing)
+            await q.answer("Голос снят.")
+        else:
+            voters.append({"uid": uid, "name": user.first_name})
+            await q.answer(f"✅ Голос за «{opt['text']}» принят!")
+        try:
+            await q.edit_message_text(
+                _poll_text(poll),
+                parse_mode="Markdown",
+                reply_markup=_poll_kb(poll, poll_id)
+            )
+        except Exception:
+            pass
+        return
+
+    # Додати варіант до активного голосування
+    if data.startswith("poll_add_"):
+        poll_id = int(data.replace("poll_add_", ""))
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        is_admin = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if user.id != poll["author_id"] and not is_admin:
+            await q.answer("⛔ Только автор или администратор.", show_alert=True)
+            return
+        context.bot_data[f"awaiting_poll_option_{chat_id}"] = poll_id
+        sent = await q.message.reply_text("✏️ Напиши новый вариант следующим сообщением:")
+        _schedule_delete(context, chat_id, sent.message_id, 60)
+        return
+
+    # Закрити голосування
+    if data.startswith("poll_close_"):
+        poll_id = int(data.replace("poll_close_", ""))
+        poll = _polls.get(chat_id, {}).get(poll_id)
+        if not poll:
+            return
+        is_admin = await _is_admin(context.bot, chat_id, user.id, user.username)
+        if user.id != poll["author_id"] and not is_admin:
+            await q.answer("⛔ Только автор или администратор.", show_alert=True)
+            return
+        try:
+            await q.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await q.answer("✅ Голосование закрыто!")
+        _polls.get(chat_id, {}).pop(poll_id, None)
+        return
+
+
 def main():
     import os
     TOKEN = os.environ.get("BOT_TOKEN")
@@ -3017,6 +3408,8 @@ def main():
     app.add_handler(CommandHandler("event",         cmd_event))
     app.add_handler(CommandHandler("events",        cmd_events_list))
     app.add_handler(CommandHandler("clearevents",   cmd_clear_events))
+    app.add_handler(CommandHandler("vote",           cmd_poll_create))
+    app.add_handler(CallbackQueryHandler(cb_poll, pattern=r"^(vote_|padd_|pcustom_|pstart_|poll_add_|poll_close_|pdate_|pdatecustom_|pdatenone_)"))
     app.add_handler(CommandHandler("fixpinned",     cmd_fix_pinned_events))
     app.add_handler(CommandHandler("weather",       cmd_weather))
     app.add_handler(CommandHandler("question",      cmd_question))
