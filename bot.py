@@ -402,16 +402,27 @@ async def sched_weather(context: ContextTypes.DEFAULT_TYPE):
             context.job.data["chat_id"], build_weather_full(data), parse_mode="Markdown"
         )
 
+MORNING_NEWS = [
+    "📰 Учёные подтвердили: кофе с утра — это не зависимость, а стратегия выживания ☕",
+    "📰 Исследование показало: люди, которые отвечают на сообщения сразу — редкий вид 🦄",
+    "📰 Эксперты выяснили: понедельник существует, и с этим ничего не поделать 📅",
+    "📰 Зафиксировано рекордное число людей, которые сказали «я уже иду» и не вышли 🚶",
+    "📰 Учёные обнаружили: 9 из 10 планов «встретиться на этой неделе» переносятся на следующую",
+    "📰 Новое исследование: прокрутка ленты перед сном официально называется «подготовка к отдыху» 📱",
+    "📰 Специалисты подтвердили: фраза «ещё 5 минут» в среднем длится 47 минут ⏰",
+    "📰 Учёные доказали: пицца на завтрак содержит все необходимые группы продуктов 🍕",
+    "📰 Международный совет решил: вторник официально самый бесполезный день недели",
+    "📰 Исследование: люди которые говорят «я не устал» устали сильнее всех 😴",
+    "📰 Эксперты рекомендуют: перед важным решением поспать. Решение само не исчезнет, зато спать будет приятно",
+    "📰 Учёные зафиксировали новый феномен: холодильник открывают в среднем 11 раз за вечер без намерения что-то взять 🥶",
+    "📰 Социологи выяснили: самое частое слово в чатах друзей — «ну»",
+    "📰 Исследователи сообщают: планирование ивентов в мессенджере в 80% случаев заменяет сам ивент 📆",
+    "📰 Учёные открыли: время в очереди в кофейне идёт в 3 раза медленнее чем обычное ☕",
+]
+
 async def sched_morning_news(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.data["chat_id"]
-    prompt = (
-        "Придумай одну короткую абсурдную смешную новость на любую тему в стиле сатирического сайта. "
-        "Темы: наука, технологии, еда, животные, офисная жизнь, городская жизнь — что угодно случайное. "
-        "Максимум 2 предложения. Новость уникальная, не повторяй шаблонные темы. "
-        "Начни сразу с новости без вступлений. Пиши на русском."
-    )
-    news = await ask_ai(prompt)
-    await context.bot.send_message(chat_id, f"📰 *Новость дня:* {news}", parse_mode="Markdown")
+    await context.bot.send_message(chat_id, random.choice(MORNING_NEWS), parse_mode="Markdown")
 
 # ── Трекер — анкета + теги + активность ───────
 
@@ -2378,6 +2389,28 @@ SILENCE_QUESTIONS = [
     "🤖 Покажите фото чего угодно что вам сейчас нравится. Или не нравится. Главное — жизнь.",
 ]
 
+MORNING_GREETINGS = [
+    "🌅 Доброе утро! У кого как начался день? Какие планы?",
+    "🌤 Привет! Новый день — новые возможности. Чем займётесь сегодня?",
+    "☀️ Доброе утро, компания! Как настроение? Что планируете?",
+    "🌞 Утро добрым бывает! Кто уже проснулся? Что за день впереди?",
+    "🍳 Доброе утро! Завтрак уже был? Рассказывайте как жизнь 😊",
+]
+
+async def sched_morning_greeting(context: ContextTypes.DEFAULT_TYPE):
+    """О 9:00 — якщо ніхто ще не писав сьогодні, вітаємо."""
+    chat_id = context.job.data["chat_id"]
+    now = datetime.now(KYIV_TZ)
+    last = _last_message_time.get(chat_id, 0)
+    # Якщо останнє повідомлення було до 9:00 сьогодні або взагалі не було
+    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()
+    if last < today_9am:
+        msg = random.choice(MORNING_GREETINGS)
+        await context.bot.send_message(chat_id, msg)
+        _last_message_time[chat_id] = now.timestamp()
+        context.bot_data[f"silence_sent_{chat_id}"] = True
+
+
 async def sched_check_silence(context: ContextTypes.DEFAULT_TYPE):
     """Кожні 30 хв — якщо тиша > 2 годин між 10:00 і 22:00, задає питання."""
     chat_id = context.job.data["chat_id"]
@@ -2404,7 +2437,7 @@ async def sched_check_silence(context: ContextTypes.DEFAULT_TYPE):
 
 
 ALL_JOB_SUFFIXES = ["_weather", "_friday", "_evening", "_monday",
-                    "_report", "_news", "_cleanup", "_qt", "_silence", "_anketa"]
+                    "_report", "_news", "_cleanup", "_qt", "_silence", "_anketa", "_greet"]
 
 def _all_job_names(chat_id):
     return [str(chat_id)] + [f"{chat_id}{s}" for s in ALL_JOB_SUFFIXES]
@@ -2419,6 +2452,7 @@ def schedule_auto_jobs(jq, chat_id):
     _remove_jobs(jq, chat_id)
     jq.run_daily(sched_weather,            time=time(8,0,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_weather")
     jq.run_daily(sched_morning_news,       time=time(8,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_news")
+    jq.run_daily(sched_morning_greeting,   time=time(9,0,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_greet")
     jq.run_daily(sched_howwasday,          time=time(21,0,tzinfo=KYIV_TZ),  days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_evening")
     jq.run_daily(sched_weekly_report,      time=time(20,0,tzinfo=KYIV_TZ),  days=(6,),            data={"chat_id":chat_id}, name=f"{chat_id}_report")
     jq.run_daily(sched_cleanup_events,     time=time(0,5,tzinfo=KYIV_TZ),   days=tuple(range(7)), data={"chat_id":chat_id}, name=f"{chat_id}_cleanup")
